@@ -19,10 +19,11 @@ Core path:
 ## Start
 
 1. Install JDK 17 and Maven 3.9+.
-2. Prepare local MySQL and Redis:
+2. Prepare local MySQL, Redis, and RabbitMQ:
 
 - MySQL: `localhost:3306`, database `mall`, user `root`, password `root`.
 - Redis: `localhost:6379`, password `root`.
+- RabbitMQ: `localhost:5672`, management UI `http://localhost:15672`, user `mall`, password `mall`.
 
 Initialize MySQL tables:
 
@@ -30,16 +31,30 @@ Initialize MySQL tables:
 Get-Content scripts\mysql\init.sql | & 'D:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -uroot -proot mall
 ```
 
-3. Start RabbitMQ:
+3. Start local RabbitMQ.
+
+On Windows, if RabbitMQ is installed as a service, start it from Services or run:
 
 ```powershell
-docker compose up -d
+rabbitmq-service.bat start
 ```
 
-If you want Docker MySQL and Docker Redis instead, run:
+Then enable the management UI if it is not already enabled:
 
 ```powershell
-docker compose --profile docker-db up -d
+rabbitmq-plugins enable rabbitmq_management
+```
+
+If you want Docker infrastructure instead, run:
+
+```powershell
+docker compose --profile docker-db --profile docker-mq up -d
+```
+
+If you only want Docker RabbitMQ:
+
+```powershell
+docker compose --profile docker-mq up -d
 ```
 
 4. Start services in separate terminals:

@@ -26,6 +26,7 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: mall-rabbitmq
+    profiles: ["docker-mq"]
     ports:
       - "5672:5672"
       - "15672:15672"

@@ -1,31 +1,23 @@
-package com.resume.mall.seckill;
+package com.resume.mall.seckill.service;
 
-import com.resume.mall.common.ApiResponse;
 import com.resume.mall.common.OrderCreateMessage;
 import com.resume.mall.common.RabbitNames;
 import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.ReserveResult;
+import com.resume.mall.seckill.config.RabbitConfig;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-@RestController
-@RequestMapping
-public class SeckillController {
+@Service
+public class SeckillService {
     private static final long PRODUCT_ID = 2001L;
     private static final long AMOUNT_CENT = 199900L;
     private static final Duration IDEMPOTENT_TTL = Duration.ofHours(2);
@@ -51,17 +43,13 @@ public class SeckillController {
     private final RabbitTemplate rabbitTemplate;
     private final DefaultRedisScript<Long> reserveScript;
 
-    public SeckillController(StringRedisTemplate redisTemplate, RabbitTemplate rabbitTemplate) {
+    public SeckillService(StringRedisTemplate redisTemplate, RabbitTemplate rabbitTemplate) {
         this.redisTemplate = redisTemplate;
         this.rabbitTemplate = rabbitTemplate;
         this.reserveScript = new DefaultRedisScript<>(RESERVE_STOCK_LUA, Long.class);
     }
 
-    @PostMapping("/api/seckill/{activityId}/reserve")
-    public ApiResponse<ReserveResult> reserve(
-            @PathVariable("activityId") long activityId,
-            @RequestHeader("X-User-Id") long userId,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+    public ReserveResult reserve(long activityId, long userId, String idempotencyKey) {
         String requestId = idempotencyKey == null || idempotencyKey.isBlank()
                 ? UUID.randomUUID().toString()
                 : idempotencyKey;
@@ -78,13 +66,13 @@ public class SeckillController {
                 String.valueOf(IDEMPOTENT_TTL.toSeconds()));
 
         if (result == null || result == 0L) {
-            return ApiResponse.fail(409, "stock sold out");
+            throw new IllegalStateException("stock sold out");
         }
         if (result == 2L) {
-            return ApiResponse.fail(409, "user already reserved this activity");
+            throw new IllegalStateException("user already reserved this activity");
         }
         if (result == 3L) {
-            return ApiResponse.ok(new ReserveResult(requestId, "DUPLICATE", "request already reserved"));
+            return new ReserveResult(requestId, "DUPLICATE", "request already reserved");
         }
 
         OrderCreateMessage message = new OrderCreateMessage(
@@ -106,12 +94,10 @@ public class SeckillController {
             redisTemplate.delete(RedisKeys.seckillRequest(requestId));
             throw ex;
         }
-        return ApiResponse.ok(new ReserveResult(requestId, "RESERVED", "order event published"));
+        return new ReserveResult(requestId, "RESERVED", "order event published");
     }
 
-    @PostMapping("/internal/seckill/{activityId}/stock")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void initStock(@PathVariable("activityId") long activityId, @RequestParam("quantity") int quantity) {
+    public void initStock(long activityId, int quantity) {
         if (quantity < 0) {
             throw new IllegalArgumentException("quantity must be non-negative");
         }

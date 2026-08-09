@@ -1,4 +1,4 @@
-package com.resume.mall.seckill;
+package com.resume.mall.seckill.config;
 
 import com.resume.mall.common.RabbitNames;
 import org.springframework.amqp.core.Binding;

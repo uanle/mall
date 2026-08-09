@@ -1,4 +1,4 @@
-package com.resume.mall.order;
+package com.resume.mall.order.mq;
 
 import com.resume.mall.common.OrderCreateMessage;
 import com.resume.mall.common.RabbitNames;

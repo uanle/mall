@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: mall-seckill
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
   data:
     redis:
       host: localhost

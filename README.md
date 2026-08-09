@@ -16,6 +16,18 @@ Core path:
 - `mall-order`: RabbitMQ consumer, idempotent order creation, timeout close job.
 - `mall-common`: shared DTOs, constants, API response.
 
+Package convention:
+
+- `controller`: REST API entrypoints.
+- `service`: business orchestration and transaction boundary.
+- `entity`: MyBatis-Plus table mappings.
+- `mapper`: MyBatis-Plus mapper interfaces.
+- `dto`: request/response DTOs.
+- `config`: framework and middleware configuration.
+- `mq`: message producers/consumers.
+- `job`: scheduled jobs.
+- `exception`: REST exception handlers.
+
 ## Start
 
 1. Install JDK 17 and Maven 3.9+.
@@ -30,6 +42,8 @@ Initialize MySQL tables:
 ```powershell
 Get-Content scripts\mysql\init.sql | & 'D:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -uroot -proot mall
 ```
+
+The SQL creates the required tables: `product`, `product_inventory`, `retail_order`, `inventory_deduct_log`, `seckill_activity`, `trade_order`, and `stock_deduct_log`.
 
 3. Start local RabbitMQ.
 
@@ -57,27 +71,48 @@ If you only want Docker RabbitMQ:
 docker compose --profile docker-mq up -d
 ```
 
-4. Start services in separate terminals:
+4. Start services:
 
 ```powershell
-mvn -pl mall-product spring-boot:run
-mvn -pl mall-seckill spring-boot:run
-mvn -pl mall-order spring-boot:run
-mvn -pl mall-gateway spring-boot:run
+.\scripts\start-services.ps1 -Build
 ```
 
 5. Initialize Redis stock:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:8082/internal/seckill/1001/stock?quantity=1000
+curl.exe -X POST "http://localhost:8082/internal/seckill/1001/stock?quantity=1000"
 ```
 
 6. Submit a seckill request through the gateway:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:8080/api/seckill/1001/reserve `
-  -Headers @{"X-User-Id"="1"; "Idempotency-Key"=[guid]::NewGuid().ToString()}
+$requestId = [guid]::NewGuid().ToString()
+
+curl.exe -X POST "http://localhost:8080/api/seckill/1001/reserve" `
+  -H "X-User-Id: 1" `
+  -H "Idempotency-Key: $requestId"
+
+Start-Sleep -Seconds 2
+curl.exe "http://localhost:8080/api/orders/$requestId"
 ```
+
+## Retail Order Flow
+
+REST path:
+
+`GET /api/products/{productId} -> POST /api/orders -> POST /api/orders/{orderNo}/payments -> POST /api/orders/{orderNo}/completion`
+
+Run the smoke test:
+
+```powershell
+.\scripts\test-retail-order.ps1
+```
+
+Swagger UI:
+
+- Product service: `http://localhost:8081/swagger-ui/index.html`
+- Seckill service: `http://localhost:8082/swagger-ui/index.html`
+- Order service: `http://localhost:8083/swagger-ui/index.html`
 
 ## Performance Worklog Target
 

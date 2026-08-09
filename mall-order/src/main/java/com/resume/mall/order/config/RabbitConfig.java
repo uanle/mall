@@ -1,4 +1,4 @@
-package com.resume.mall.order;
+package com.resume.mall.order.config;
 
 import com.resume.mall.common.RabbitNames;
 import org.springframework.amqp.core.Binding;

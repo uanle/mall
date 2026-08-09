@@ -1,4 +1,4 @@
-package com.resume.mall.order;
+package com.resume.mall.order.job;
 
 import com.resume.mall.common.RedisKeys;
 import org.springframework.data.redis.core.StringRedisTemplate;

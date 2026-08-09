@@ -1,77 +1,71 @@
-package com.resume.mall.product;
+package com.resume.mall.product.service;
 
-import com.resume.mall.common.ApiResponse;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.resume.mall.common.RedisKeys;
+import com.resume.mall.product.entity.Product;
+import com.resume.mall.product.mapper.ProductMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
-@RestController
-@RequestMapping("/api")
-public class ProductController {
+@Service
+public class ProductService {
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
     private static final Duration NULL_TTL = Duration.ofSeconds(30);
     private static final Duration LOCK_TTL = Duration.ofSeconds(3);
 
     private final JdbcClient jdbcClient;
     private final StringRedisTemplate redisTemplate;
+    private final ProductMapper productMapper;
 
-    public ProductController(JdbcClient jdbcClient, StringRedisTemplate redisTemplate) {
+    public ProductService(JdbcClient jdbcClient, StringRedisTemplate redisTemplate, ProductMapper productMapper) {
         this.jdbcClient = jdbcClient;
         this.redisTemplate = redisTemplate;
+        this.productMapper = productMapper;
     }
 
-    @GetMapping("/products/{productId}")
-    public ApiResponse<Map<String, Object>> product(@PathVariable("productId") long productId) {
+    public Map<String, Object> getProductDetail(long productId) {
         String cacheKey = RedisKeys.productCache(productId);
         String cached = redisTemplate.opsForValue().get(cacheKey);
         if (cached != null) {
             if (cached.isBlank()) {
-                return ApiResponse.fail(404, "product not found");
+                throw new IllegalArgumentException("product not found");
             }
-            return ApiResponse.ok(Map.of("raw", cached, "source", "redis"));
+            return Map.of("raw", cached, "source", "redis");
         }
 
         Boolean locked = redisTemplate.opsForValue()
                 .setIfAbsent(RedisKeys.productMutex(productId), "1", LOCK_TTL);
         if (!Boolean.TRUE.equals(locked)) {
-            return ApiResponse.fail(429, "cache rebuild in progress");
+            throw new IllegalStateException("cache rebuild in progress");
         }
 
         try {
-            Optional<Map<String, Object>> row = jdbcClient.sql("""
-                            select id, name, price_cent, status
-                            from product
-                            where id = ? and status = 1
-                            """)
-                    .param(productId)
-                    .query()
-                    .listOfRows()
-                    .stream()
-                    .findFirst();
-            if (row.isEmpty()) {
+            Product product = productMapper.selectOne(new LambdaQueryWrapper<Product>()
+                    .eq(Product::getId, productId)
+                    .eq(Product::getStatus, 1));
+            if (product == null) {
                 redisTemplate.opsForValue().set(cacheKey, "", NULL_TTL);
-                return ApiResponse.fail(404, "product not found");
+                throw new IllegalArgumentException("product not found");
             }
-            String value = row.get().toString();
+            String value = Map.of(
+                    "id", product.getId(),
+                    "name", product.getName(),
+                    "price_cent", product.getPriceCent(),
+                    "status", product.getStatus()).toString();
             redisTemplate.opsForValue().set(cacheKey, value, jitter(CACHE_TTL));
-            return ApiResponse.ok(Map.of("raw", value, "source", "mysql"));
+            return Map.of("raw", value, "source", "mysql");
         } finally {
             redisTemplate.delete(RedisKeys.productMutex(productId));
         }
     }
 
-    @GetMapping("/activities/{activityId}")
-    public ApiResponse<Map<String, Object>> activity(@PathVariable("activityId") long activityId) {
+    public Map<String, Object> getActivityDetail(long activityId) {
         List<Map<String, Object>> rows = jdbcClient.sql("""
                         select a.id, a.product_id, p.name, p.price_cent, a.total_stock, a.start_time, a.end_time, a.status
                         from seckill_activity a
@@ -82,10 +76,9 @@ public class ProductController {
                 .query()
                 .listOfRows();
         if (rows.isEmpty()) {
-            return ApiResponse.fail(404, "activity not found");
+            throw new IllegalArgumentException("activity not found");
         }
-        Map<String, Object> row = rows.get(0);
-        return ApiResponse.ok(row);
+        return rows.get(0);
     }
 
     private Duration jitter(Duration base) {

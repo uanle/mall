@@ -6,10 +6,16 @@ $ErrorActionPreference = 'Stop'
 
 $Workspace = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $LogDir = Join-Path $Workspace 'logs'
-$JavaExe = Join-Path $env:JAVA_HOME 'bin\java.exe'
 
-if (-not $env:JAVA_HOME -or -not (Test-Path -LiteralPath $JavaExe)) {
-    throw 'JAVA_HOME must point to JDK 17, for example C:\Users\Admin\.jdks\ms-17.0.20'
+if ($env:JAVA_HOME) {
+    $JavaExe = Join-Path $env:JAVA_HOME 'bin\java.exe'
+} else {
+    $JavaCommand = Get-Command java.exe -ErrorAction SilentlyContinue
+    $JavaExe = if ($JavaCommand) { $JavaCommand.Source } else { $null }
+}
+
+if (-not $JavaExe -or -not (Test-Path -LiteralPath $JavaExe)) {
+    throw 'Java was not found. Set JAVA_HOME to JDK 17 or add java.exe to Path.'
 }
 
 if ($Build) {

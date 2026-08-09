@@ -1,0 +1,29 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: mall-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: product
+              uri: http://localhost:8081
+              predicates:
+                - Path=/api/products/**,/api/activities/**
+            - id: seckill
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/seckill/**
+            - id: order
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/orders/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus

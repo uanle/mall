@@ -1,4 +1,4 @@
-package com.resume.mall.order.exception;
+package com.resume.mall.user.exception;
 
 import com.resume.mall.common.ApiResponse;
 import org.springframework.http.HttpStatus;
@@ -13,13 +13,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 
 @RestControllerAdvice
-public class OrderExceptionHandler {
-    @ExceptionHandler(OrderBizException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ApiResponse<Object> biz(OrderBizException ex) {
-        return ApiResponse.fail(ex.getCode(), ex.getMessage(), ex.getData());
-    }
-
+public class UserExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> badRequest(IllegalArgumentException ex) {

@@ -23,4 +23,12 @@ public final class RedisKeys {
     public static String productMutex(long productId) {
         return "lock:product:" + productId;
     }
+
+    public static String userAuth(String username) {
+        return "cache:user:auth:" + username;
+    }
+
+    public static String userById(long userId) {
+        return "cache:user:id:" + userId;
+    }
 }

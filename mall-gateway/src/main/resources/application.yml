@@ -9,6 +9,10 @@ spring:
       server:
         webflux:
           routes:
+            - id: user
+              uri: http://localhost:8084
+              predicates:
+                - Path=/api/auth/**,/api/users/**
             - id: product
               uri: http://localhost:8081
               predicates:
@@ -17,6 +21,10 @@ spring:
               uri: http://localhost:8082
               predicates:
                 - Path=/api/seckill/**
+            - id: seckill-internal
+              uri: http://localhost:8082
+              predicates:
+                - Path=/internal/seckill/**
             - id: order
               uri: http://localhost:8083
               predicates:
@@ -39,6 +47,16 @@ spring:
                 - Path=/v3/api-docs/order
               filters:
                 - RewritePath=/v3/api-docs/order,/v3/api-docs
+            - id: user-openapi
+              uri: http://localhost:8084
+              predicates:
+                - Path=/v3/api-docs/user
+              filters:
+                - RewritePath=/v3/api-docs/user,/v3/api-docs
+
+mall:
+  jwt:
+    secret: mall-local-dev-secret-change-me
 
 springdoc:
   swagger-ui:
@@ -49,6 +67,8 @@ springdoc:
         url: /v3/api-docs/seckill
       - name: order
         url: /v3/api-docs/order
+      - name: user
+        url: /v3/api-docs/user
 
 management:
   endpoints:

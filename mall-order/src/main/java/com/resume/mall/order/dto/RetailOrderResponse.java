@@ -11,6 +11,7 @@ public record RetailOrderResponse(
         Integer quantity,
         Long amountCent,
         String status,
+        String idempotencyKey,
         LocalDateTime createdAt,
         LocalDateTime paidAt,
         LocalDateTime completedAt
@@ -23,6 +24,7 @@ public record RetailOrderResponse(
                 order.getQuantity(),
                 order.getAmountCent(),
                 order.getStatus(),
+                order.getIdempotencyKey(),
                 order.getCreatedAt(),
                 order.getPaidAt(),
                 order.getCompletedAt());

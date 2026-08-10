@@ -1,4 +1,4 @@
-package com.resume.mall.order.config;
+package com.resume.mall.user.config;
 
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Components;
@@ -13,7 +13,7 @@ import java.util.List;
 @Configuration
 public class OpenApiConfig {
     @Bean
-    public OpenAPI orderOpenAPI() {
+    public OpenAPI userOpenAPI() {
         return new OpenAPI()
                 .components(new Components().addSecuritySchemes("BearerAuth", bearerScheme()))
                 .addSecurityItem(new SecurityRequirement().addList("BearerAuth"))

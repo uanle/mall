@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $Workspace = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$Ports = 8080, 8081, 8082, 8083
+$Ports = 8080, 8081, 8082, 8083, 8084
 
 $Stopped = @()
 $Connections = Get-NetTCPConnection -LocalPort $Ports -State Listen -ErrorAction SilentlyContinue

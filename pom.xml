@@ -12,6 +12,7 @@
     <modules>
         <module>mall-common</module>
         <module>mall-gateway</module>
+        <module>mall-user</module>
         <module>mall-product</module>
         <module>mall-seckill</module>
         <module>mall-order</module>

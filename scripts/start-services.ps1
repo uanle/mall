@@ -33,6 +33,7 @@ if ($Build) {
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 $Services = @(
+    @{ Name = 'mall-user';    Port = 8084; Jar = 'mall-user\target\mall-user-0.1.0-SNAPSHOT.jar';       Log = 'user-app.log' },
     @{ Name = 'mall-order';   Port = 8083; Jar = 'mall-order\target\mall-order-0.1.0-SNAPSHOT.jar';     Log = 'order-app.log' },
     @{ Name = 'mall-product'; Port = 8081; Jar = 'mall-product\target\mall-product-0.1.0-SNAPSHOT.jar'; Log = 'product-app.log' },
     @{ Name = 'mall-seckill'; Port = 8082; Jar = 'mall-seckill\target\mall-seckill-0.1.0-SNAPSHOT.jar'; Log = 'seckill-app.log' },

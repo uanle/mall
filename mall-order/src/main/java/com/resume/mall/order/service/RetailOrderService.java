@@ -5,8 +5,11 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.resume.mall.common.PageResult;
 import com.resume.mall.order.dto.CreateOrderRequest;
 import com.resume.mall.order.dto.RetailOrderResponse;
+import com.resume.mall.order.dto.StockCheckResponse;
+import com.resume.mall.order.entity.ProductInventory;
 import com.resume.mall.order.entity.ProductSnapshot;
 import com.resume.mall.order.entity.RetailOrder;
+import com.resume.mall.order.exception.OrderBizException;
 import com.resume.mall.order.mapper.ProductInventoryMapper;
 import com.resume.mall.order.mapper.ProductSnapshotMapper;
 import com.resume.mall.order.mapper.RetailOrderMapper;
@@ -54,13 +57,16 @@ public class RetailOrderService {
         ProductSnapshot product = productMapper.selectOne(new LambdaQueryWrapper<ProductSnapshot>()
                 .eq(ProductSnapshot::getId, request.productId())
                 .eq(ProductSnapshot::getStatus, 1));
-        if (product == null) {
-            throw new IllegalArgumentException("product not found or inactive");
+        StockCheckResponse stockCheck = checkStock(product, request.productId(), request.quantity());
+        if (!stockCheck.passed()) {
+            int code = stockCheck.productAvailable() && stockCheck.inventoryExists() ? 409 : 400;
+            throw new OrderBizException(code, stockCheck.reason(), stockCheck);
         }
 
         int reserved = inventoryMapper.reserveStock(request.productId(), request.quantity());
         if (reserved != 1) {
-            throw new IllegalStateException("insufficient stock");
+            StockCheckResponse latestStockCheck = checkStock(product, request.productId(), request.quantity());
+            throw new OrderBizException(409, "stock changed, please retry", latestStockCheck);
         }
 
         RetailOrder order = new RetailOrder();
@@ -134,6 +140,49 @@ public class RetailOrderService {
     private RetailOrder findByIdempotencyKey(String idempotencyKey) {
         return orderMapper.selectOne(new LambdaQueryWrapper<RetailOrder>()
                 .eq(RetailOrder::getIdempotencyKey, idempotencyKey));
+    }
+
+    public StockCheckResponse checkStock(long productId, int quantity) {
+        ProductSnapshot product = productMapper.selectOne(new LambdaQueryWrapper<ProductSnapshot>()
+                .eq(ProductSnapshot::getId, productId)
+                .eq(ProductSnapshot::getStatus, 1));
+        return checkStock(product, productId, quantity);
+    }
+
+    private StockCheckResponse checkStock(ProductSnapshot product, long productId, int quantity) {
+        if (quantity < 1) {
+            return new StockCheckResponse(
+                    productId, quantity, product != null, false,
+                    null, null, null, false, "quantity must be greater than 0");
+        }
+        if (product == null) {
+            return new StockCheckResponse(
+                    productId, quantity, false, false,
+                    null, null, null, false, "product not found or inactive");
+        }
+
+        ProductInventory inventory = inventoryMapper.selectById(productId);
+        if (inventory == null) {
+            return new StockCheckResponse(
+                    productId, quantity, true, false,
+                    null, null, null, false, "product inventory not found");
+        }
+        if (inventory.getAvailableStock() < quantity) {
+            return new StockCheckResponse(
+                    productId, quantity, true, true,
+                    inventory.getAvailableStock(),
+                    inventory.getLockedStock(),
+                    inventory.getSoldStock(),
+                    false,
+                    "insufficient stock");
+        }
+        return new StockCheckResponse(
+                productId, quantity, true, true,
+                inventory.getAvailableStock(),
+                inventory.getLockedStock(),
+                inventory.getSoldStock(),
+                true,
+                "stock available");
     }
 
     public PageResult<Map<String, Object>> pageRetailOrders(

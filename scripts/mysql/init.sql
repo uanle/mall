@@ -8,6 +8,20 @@ CREATE TABLE IF NOT EXISTS product (
     KEY idx_product_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS mall_user (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(128) NOT NULL,
+    role VARCHAR(32) NOT NULL,
+    level VARCHAR(32) NOT NULL,
+    status TINYINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    UNIQUE KEY uk_user_username (username),
+    KEY idx_user_role_level (role, level),
+    KEY idx_user_status_created (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS seckill_activity (
     id BIGINT PRIMARY KEY,
     product_id BIGINT NOT NULL,
@@ -95,6 +109,18 @@ CREATE TABLE IF NOT EXISTS stock_deduct_log (
 INSERT INTO product (id, name, price_cent, status)
 VALUES (2001, 'Seckill Phone', 199900, 1)
 ON DUPLICATE KEY UPDATE name = VALUES(name), price_cent = VALUES(price_cent), status = VALUES(status);
+
+INSERT INTO mall_user (id, username, password_hash, role, level, status)
+VALUES
+    (1, 'admin', '7a3387bec43778ba5913f99d361cad9cc7779538991050f5d163643240422bb2', 'ADMIN', 'NONE', 1),
+    (2, 'user', 'b95a49530e6a9477a2f5d9b7d4908fe1508086e952f57dbff206dd538a687060', 'USER', 'NORMAL', 1),
+    (3, 'vip', 'b95a49530e6a9477a2f5d9b7d4908fe1508086e952f57dbff206dd538a687060', 'USER', 'VIP', 1),
+    (4, 'svip', 'b95a49530e6a9477a2f5d9b7d4908fe1508086e952f57dbff206dd538a687060', 'USER', 'SVIP', 1)
+ON DUPLICATE KEY UPDATE
+    password_hash = VALUES(password_hash),
+    role = VALUES(role),
+    level = VALUES(level),
+    status = VALUES(status);
 
 INSERT INTO product_inventory (product_id, available_stock, locked_stock, sold_stock)
 VALUES (2001, 1000, 0, 0)

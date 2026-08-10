@@ -11,6 +11,7 @@ Core path:
 ## Modules
 
 - `mall-gateway`: route entry, static service routes.
+- `mall-user`: registration, login, JWT issuing, user role and level APIs.
 - `mall-product`: product and seckill activity query APIs.
 - `mall-seckill`: Redis Lua atomic stock reservation and MQ publishing.
 - `mall-order`: RabbitMQ consumer, idempotent order creation, timeout close job.
@@ -43,7 +44,14 @@ Initialize MySQL tables:
 Get-Content scripts\mysql\init.sql | & 'D:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -uroot -proot mall
 ```
 
-The SQL creates the required tables: `product`, `product_inventory`, `retail_order`, `inventory_deduct_log`, `seckill_activity`, `trade_order`, and `stock_deduct_log`.
+The SQL creates the required tables: `mall_user`, `product`, `product_inventory`, `retail_order`, `inventory_deduct_log`, `seckill_activity`, `trade_order`, and `stock_deduct_log`.
+
+Default users:
+
+- admin / admin123: `ADMIN`, `NONE`
+- user / user123: `USER`, `NORMAL`
+- vip / user123: `USER`, `VIP`
+- svip / user123: `USER`, `SVIP`
 
 3. Start local RabbitMQ.
 
@@ -77,30 +85,52 @@ docker compose --profile docker-mq up -d
 .\scripts\start-services.ps1 -Build
 ```
 
-5. Initialize Redis stock:
+5. Login and keep the token:
 
 ```powershell
-curl.exe -X POST "http://localhost:8082/internal/seckill/1001/stock?quantity=1000"
+$login = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8080/api/auth/login" `
+  -ContentType "application/json" `
+  -Body '{"username":"user","password":"user123"}'
+
+$token = $login.data.accessToken
 ```
 
-6. Submit a seckill request through the gateway:
+6. Initialize Redis stock with admin token:
+
+```powershell
+$adminLogin = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8080/api/auth/login" `
+  -ContentType "application/json" `
+  -Body '{"username":"admin","password":"admin123"}'
+
+$adminToken = $adminLogin.data.accessToken
+```
+
+```powershell
+curl.exe -X POST "http://localhost:8080/internal/seckill/1001/stock?quantity=1000" -H "Authorization: Bearer $adminToken"
+```
+
+7. Submit a seckill request through the gateway:
 
 ```powershell
 $requestId = [guid]::NewGuid().ToString()
 
 curl.exe -X POST "http://localhost:8080/api/seckill/1001/reserve" `
-  -H "X-User-Id: 1" `
+  -H "Authorization: Bearer $token" `
   -H "Idempotency-Key: $requestId"
 
 Start-Sleep -Seconds 2
-curl.exe "http://localhost:8080/api/orders/$requestId"
+curl.exe "http://localhost:8080/api/orders/seckill-requests/$requestId"
 ```
 
 ## Retail Order Flow
 
 REST path:
 
-`GET /api/products/{productId} -> POST /api/orders -> POST /api/orders/{orderNo}/payments -> POST /api/orders/{orderNo}/completion`
+`GET /api/products/{productId} -> POST /api/orders -> POST /api/orders/{orderNo}/payments -> POST /api/orders/{orderNo}/completion -> GET /api/orders/{orderNo}`
 
 Run the smoke test:
 
@@ -111,9 +141,54 @@ Run the smoke test:
 Swagger UI:
 
 - Gateway aggregated Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+- User service: `http://localhost:8084/swagger-ui/index.html`
 - Product service: `http://localhost:8081/swagger-ui/index.html`
 - Seckill service: `http://localhost:8082/swagger-ui/index.html`
 - Order service: `http://localhost:8083/swagger-ui/index.html`
+
+## User and Permission Flow
+
+Login:
+
+```powershell
+$login = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8080/api/auth/login" `
+  -ContentType "application/json" `
+  -Body '{"username":"user","password":"user123"}'
+
+$token = $login.data.accessToken
+```
+
+Call protected user/order/seckill APIs:
+
+```powershell
+curl.exe "http://localhost:8080/api/users/me" -H "Authorization: Bearer $token"
+curl.exe "http://localhost:8080/api/orders/stock-check?productId=2001&quantity=1" -H "Authorization: Bearer $token"
+```
+
+Admin APIs require `ADMIN` role:
+
+```powershell
+$adminLogin = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8080/api/auth/login" `
+  -ContentType "application/json" `
+  -Body '{"username":"admin","password":"admin123"}'
+
+$adminToken = $adminLogin.data.accessToken
+
+curl.exe "http://localhost:8080/api/users?pageNum=1&pageSize=10" -H "Authorization: Bearer $adminToken"
+```
+
+User login cache:
+
+- `cache:user:auth:{username}` caches login authentication snapshot.
+- `cache:user:id:{userId}` caches current user profile snapshot.
+- Cache value is stored as JSON through Jackson Redis serialization.
+- Cache TTL defaults to 1800 seconds.
+- Registration writes cache; admin updates evict and refresh cache.
+- If old cache values exist from earlier versions, delete `cache:user:*` or wait for TTL expiration.
 
 Common paging examples:
 

@@ -21,6 +21,34 @@ spring:
               uri: http://localhost:8083
               predicates:
                 - Path=/api/orders/**
+            - id: product-openapi
+              uri: http://localhost:8081
+              predicates:
+                - Path=/v3/api-docs/product
+              filters:
+                - RewritePath=/v3/api-docs/product,/v3/api-docs
+            - id: seckill-openapi
+              uri: http://localhost:8082
+              predicates:
+                - Path=/v3/api-docs/seckill
+              filters:
+                - RewritePath=/v3/api-docs/seckill,/v3/api-docs
+            - id: order-openapi
+              uri: http://localhost:8083
+              predicates:
+                - Path=/v3/api-docs/order
+              filters:
+                - RewritePath=/v3/api-docs/order,/v3/api-docs
+
+springdoc:
+  swagger-ui:
+    urls:
+      - name: product
+        url: /v3/api-docs/product
+      - name: seckill
+        url: /v3/api-docs/seckill
+      - name: order
+        url: /v3/api-docs/order
 
 management:
   endpoints:

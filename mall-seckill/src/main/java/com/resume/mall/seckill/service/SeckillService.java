@@ -1,20 +1,25 @@
 package com.resume.mall.seckill.service;
 
+import com.resume.mall.common.PageResult;
 import com.resume.mall.common.OrderCreateMessage;
 import com.resume.mall.common.RabbitNames;
 import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.ReserveResult;
-import com.resume.mall.seckill.config.RabbitConfig;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import java.util.NoSuchElementException;
 
 @Service
 public class SeckillService {
@@ -41,11 +46,13 @@ public class SeckillService {
 
     private final StringRedisTemplate redisTemplate;
     private final RabbitTemplate rabbitTemplate;
+    private final JdbcClient jdbcClient;
     private final DefaultRedisScript<Long> reserveScript;
 
-    public SeckillService(StringRedisTemplate redisTemplate, RabbitTemplate rabbitTemplate) {
+    public SeckillService(StringRedisTemplate redisTemplate, RabbitTemplate rabbitTemplate, JdbcClient jdbcClient) {
         this.redisTemplate = redisTemplate;
         this.rabbitTemplate = rabbitTemplate;
+        this.jdbcClient = jdbcClient;
         this.reserveScript = new DefaultRedisScript<>(RESERVE_STOCK_LUA, Long.class);
     }
 
@@ -102,5 +109,139 @@ public class SeckillService {
             throw new IllegalArgumentException("quantity must be non-negative");
         }
         redisTemplate.opsForValue().set(RedisKeys.seckillStock(activityId), String.valueOf(quantity));
+    }
+
+    public PageResult<Map<String, Object>> pageActivities(
+            int pageNum,
+            int pageSize,
+            Long productId,
+            String productName,
+            Integer status,
+            LocalDateTime startFrom,
+            LocalDateTime startTo) {
+        int normalizedPageNum = normalizePageNum(pageNum);
+        int normalizedPageSize = normalizePageSize(pageSize);
+        long offset = (long) (normalizedPageNum - 1) * normalizedPageSize;
+
+        StringBuilder where = new StringBuilder(" where 1 = 1");
+        List<Object> params = new ArrayList<>();
+        if (productId != null) {
+            where.append(" and a.product_id = ?");
+            params.add(productId);
+        }
+        if (productName != null && !productName.isBlank()) {
+            where.append(" and p.name like ?");
+            params.add("%" + productName.trim() + "%");
+        }
+        if (status != null) {
+            where.append(" and a.status = ?");
+            params.add(status);
+        }
+        if (startFrom != null) {
+            where.append(" and a.start_time >= ?");
+            params.add(startFrom);
+        }
+        if (startTo != null) {
+            where.append(" and a.start_time <= ?");
+            params.add(startTo);
+        }
+
+        String from = """
+                from seckill_activity a
+                join product p on p.id = a.product_id
+                """;
+        long total = queryCount("select count(*) " + from + where, params);
+        if (total == 0) {
+            throw new NoSuchElementException("data not found");
+        }
+
+        List<Object> dataParams = new ArrayList<>(params);
+        dataParams.add(normalizedPageSize);
+        dataParams.add(offset);
+        List<Map<String, Object>> records = queryRows("""
+                        select a.id, a.product_id, p.name as product_name, p.price_cent,
+                               a.total_stock, a.start_time, a.end_time, a.status,
+                               a.created_at, a.updated_at
+                        """ + from + where + " order by a.start_time asc, a.id asc limit ? offset ?",
+                dataParams);
+        return PageResult.of(normalizedPageNum, normalizedPageSize, total, records);
+    }
+
+    public PageResult<Map<String, Object>> pageStockDeductLogs(
+            int pageNum,
+            int pageSize,
+            Long userId,
+            Long activityId,
+            String status,
+            LocalDateTime createdFrom,
+            LocalDateTime createdTo) {
+        int normalizedPageNum = normalizePageNum(pageNum);
+        int normalizedPageSize = normalizePageSize(pageSize);
+        long offset = (long) (normalizedPageNum - 1) * normalizedPageSize;
+
+        StringBuilder where = new StringBuilder(" where 1 = 1");
+        List<Object> params = new ArrayList<>();
+        if (userId != null) {
+            where.append(" and user_id = ?");
+            params.add(userId);
+        }
+        if (activityId != null) {
+            where.append(" and activity_id = ?");
+            params.add(activityId);
+        }
+        if (status != null && !status.isBlank()) {
+            where.append(" and status = ?");
+            params.add(status.trim());
+        }
+        if (createdFrom != null) {
+            where.append(" and created_at >= ?");
+            params.add(createdFrom);
+        }
+        if (createdTo != null) {
+            where.append(" and created_at <= ?");
+            params.add(createdTo);
+        }
+
+        long total = queryCount("select count(*) from stock_deduct_log" + where, params);
+        if (total == 0) {
+            throw new NoSuchElementException("data not found");
+        }
+
+        List<Object> dataParams = new ArrayList<>(params);
+        dataParams.add(normalizedPageSize);
+        dataParams.add(offset);
+        List<Map<String, Object>> records = queryRows("""
+                        select id, request_id, user_id, activity_id, status, reason, created_at
+                        from stock_deduct_log
+                        """ + where + " order by created_at desc, id desc limit ? offset ?",
+                dataParams);
+        return PageResult.of(normalizedPageNum, normalizedPageSize, total, records);
+    }
+
+    private int normalizePageNum(int pageNum) {
+        return Math.max(pageNum, 1);
+    }
+
+    private int normalizePageSize(int pageSize) {
+        if (pageSize < 1) {
+            return 10;
+        }
+        return Math.min(pageSize, 100);
+    }
+
+    private long queryCount(String sql, List<Object> params) {
+        JdbcClient.StatementSpec spec = jdbcClient.sql(sql);
+        for (Object param : params) {
+            spec = spec.param(param);
+        }
+        return spec.query(Long.class).single();
+    }
+
+    private List<Map<String, Object>> queryRows(String sql, List<Object> params) {
+        JdbcClient.StatementSpec spec = jdbcClient.sql(sql);
+        for (Object param : params) {
+            spec = spec.param(param);
+        }
+        return spec.query().listOfRows();
     }
 }

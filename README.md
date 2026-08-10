@@ -110,9 +110,21 @@ Run the smoke test:
 
 Swagger UI:
 
+- Gateway aggregated Swagger UI: `http://localhost:8080/swagger-ui/index.html`
 - Product service: `http://localhost:8081/swagger-ui/index.html`
 - Seckill service: `http://localhost:8082/swagger-ui/index.html`
 - Order service: `http://localhost:8083/swagger-ui/index.html`
+
+Common paging examples:
+
+```powershell
+curl.exe "http://localhost:8080/api/products?pageNum=1&pageSize=10&name=Phone&status=1"
+curl.exe "http://localhost:8080/api/activities?pageNum=1&pageSize=10&productName=Phone&status=1&startFrom=2026-08-01T00:00:00&startTo=2026-08-31T23:59:59"
+curl.exe "http://localhost:8080/api/inventories?pageNum=1&pageSize=10&productName=Phone&availableLte=100"
+curl.exe "http://localhost:8080/api/seckill/activities?pageNum=1&pageSize=10&productName=Phone&status=1"
+curl.exe "http://localhost:8080/api/seckill/stock-deduct-logs?pageNum=1&pageSize=10&activityId=1001&status=ORDER_CREATED"
+curl.exe "http://localhost:8080/api/orders?pageNum=1&pageSize=10&userId=1&status=COMPLETED"
+```
 
 ## Performance Worklog Target
 

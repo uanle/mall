@@ -6,11 +6,13 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.NoSuchElementException;
+
 @RestControllerAdvice
 public class ProductExceptionHandler {
-    @ExceptionHandler(IllegalArgumentException.class)
+    @ExceptionHandler({IllegalArgumentException.class, NoSuchElementException.class})
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public ApiResponse<Void> notFound(IllegalArgumentException ex) {
+    public ApiResponse<Void> notFound(Exception ex) {
         return ApiResponse.fail(404, ex.getMessage());
     }
 

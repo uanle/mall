@@ -2,25 +2,36 @@ package com.resume.mall.gateway.filter;
 
 import com.resume.mall.common.JwtClaims;
 import com.resume.mall.common.JwtUtil;
+import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.UserHeaders;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
+
 @Component
 public class AuthGlobalFilter implements GlobalFilter, Ordered {
     private final String jwtSecret;
+    private final ReactiveStringRedisTemplate redisTemplate;
 
-    public AuthGlobalFilter(@Value("${mall.jwt.secret}") String jwtSecret) {
+    public AuthGlobalFilter(
+            @Value("${mall.jwt.secret}") String jwtSecret,
+            ReactiveStringRedisTemplate redisTemplate) {
         this.jwtSecret = jwtSecret;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
@@ -34,30 +45,39 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
         JwtClaims claims;
         try {
-            claims = parseBearerToken(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
+            claims = parseToken(
+                    request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION),
+                    request.getHeaders().getFirst("accessToken"));
         } catch (IllegalArgumentException ex) {
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
+            return writeError(exchange, HttpStatus.UNAUTHORIZED, ex.getMessage());
         }
 
-        if (requiresAdmin(path, request.getMethod()) && !"ADMIN".equals(claims.role())) {
-            exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
-            return exchange.getResponse().setComplete();
-        }
+        JwtClaims finalClaims = claims;
+        return redisTemplate.hasKey(RedisKeys.tokenSession(claims.jti()))
+                .flatMap(active -> {
+                    if (!Boolean.TRUE.equals(active)) {
+                        return writeError(exchange, HttpStatus.UNAUTHORIZED, "token session expired or logged out");
+                    }
+                    if (requiresAdmin(path, request.getMethod()) && !"ADMIN".equals(finalClaims.role())) {
+                        return writeError(exchange, HttpStatus.FORBIDDEN, "admin permission required");
+                    }
 
-        ServerHttpRequest mutatedRequest = request.mutate()
-                .headers(headers -> {
-                    headers.remove(UserHeaders.USER_ID);
-                    headers.remove(UserHeaders.USERNAME);
-                    headers.remove(UserHeaders.USER_ROLE);
-                    headers.remove(UserHeaders.USER_LEVEL);
-                })
-                .header(UserHeaders.USER_ID, String.valueOf(claims.userId()))
-                .header(UserHeaders.USERNAME, claims.username())
-                .header(UserHeaders.USER_ROLE, claims.role())
-                .header(UserHeaders.USER_LEVEL, claims.level())
-                .build();
-        return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                    ServerHttpRequest mutatedRequest = request.mutate()
+                            .headers(headers -> {
+                                headers.remove(UserHeaders.USER_ID);
+                                headers.remove(UserHeaders.USERNAME);
+                                headers.remove(UserHeaders.USER_ROLE);
+                                headers.remove(UserHeaders.USER_LEVEL);
+                                headers.remove(UserHeaders.TOKEN_ID);
+                            })
+                            .header(UserHeaders.USER_ID, String.valueOf(finalClaims.userId()))
+                            .header(UserHeaders.USERNAME, finalClaims.username())
+                            .header(UserHeaders.USER_ROLE, finalClaims.role())
+                            .header(UserHeaders.USER_LEVEL, finalClaims.level())
+                            .header(UserHeaders.TOKEN_ID, finalClaims.jti())
+                            .build();
+                    return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                });
     }
 
     @Override
@@ -69,7 +89,10 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         if (HttpMethod.OPTIONS.equals(method)) {
             return true;
         }
-        if (path.startsWith("/api/auth/")) {
+        if (path.equals("/api/auth/register")
+                || path.equals("/api/auth/login")
+                || path.equals("/api/auth/me")
+                || path.equals("/api/users/me")) {
             return true;
         }
         if (path.startsWith("/swagger-ui/") || path.startsWith("/v3/api-docs") || path.startsWith("/actuator/")) {
@@ -104,10 +127,31 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         return false;
     }
 
-    private JwtClaims parseBearerToken(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new IllegalArgumentException("missing bearer token");
+    private JwtClaims parseToken(String authorization, String accessToken) {
+        String token = null;
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            token = authorization.substring("Bearer ".length()).trim();
+        } else if (accessToken != null && !accessToken.isBlank()) {
+            String value = accessToken.trim();
+            token = value.startsWith("Bearer ") ? value.substring("Bearer ".length()).trim() : value;
         }
-        return JwtUtil.parseAndValidate(authorization.substring("Bearer ".length()), jwtSecret);
+        if (token == null || token.isBlank()) {
+            throw new IllegalArgumentException("missing Authorization or accessToken header");
+        }
+        return JwtUtil.parseAndValidate(token, jwtSecret);
+    }
+
+    private Mono<Void> writeError(ServerWebExchange exchange, HttpStatus status, String message) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(status);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        String body = "{\"code\":" + status.value()
+                + ",\"message\":\"" + escapeJson(message) + "\",\"data\":null}";
+        DataBuffer buffer = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
+        return response.writeWith(Mono.just(buffer));
+    }
+
+    private String escapeJson(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

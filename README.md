@@ -181,14 +181,16 @@ $adminToken = $adminLogin.data.accessToken
 curl.exe "http://localhost:8080/api/users?pageNum=1&pageSize=10" -H "Authorization: Bearer $adminToken"
 ```
 
-User login cache:
+User login/session cache:
 
-- `cache:user:auth:{username}` caches login authentication snapshot.
-- `cache:user:id:{userId}` caches current user profile snapshot.
+- `cache:user:auth:{username}` caches login authentication JSON, including `passwordHash` for password verification.
+- `cache:user:id:{userId}` caches current user profile JSON, excluding `passwordHash`.
+- `cache:token:{jti}` stores the logged-in token session JSON. Gateway validates JWT first, then checks this Redis key.
+- `cache:user:tokens:{userId}` stores the user's active token ids, used to remove old sessions when user status/permission changes.
 - Cache value is stored as JSON through Jackson Redis serialization.
-- Cache TTL defaults to 1800 seconds.
-- Registration writes cache; admin updates evict and refresh cache.
-- If old cache values exist from earlier versions, delete `cache:user:*` or wait for TTL expiration.
+- User cache TTL defaults to 1800 seconds. Token session TTL follows `mall.jwt.ttl-seconds`.
+- Registration writes user cache; login writes token session; logout deletes token session; admin updates evict user cache and active token sessions.
+- If old cache values exist from earlier versions, delete `cache:user:*` and `cache:token:*` or wait for TTL expiration.
 
 Common paging examples:
 

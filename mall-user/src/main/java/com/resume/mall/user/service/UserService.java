@@ -8,13 +8,18 @@ import com.resume.mall.common.RedisKeys;
 import com.resume.mall.user.dto.LoginRequest;
 import com.resume.mall.user.dto.LoginResponse;
 import com.resume.mall.user.dto.RegisterRequest;
+import com.resume.mall.user.dto.AuthUserCache;
+import com.resume.mall.user.dto.TokenSessionCache;
 import com.resume.mall.user.dto.UpdateUserRequest;
-import com.resume.mall.user.dto.UserCache;
+import com.resume.mall.user.dto.UserProfileCache;
 import com.resume.mall.user.dto.UserResponse;
 import com.resume.mall.user.entity.MallUser;
+import com.resume.mall.user.exception.UserUnauthorizedException;
 import com.resume.mall.user.mapper.MallUserMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -29,6 +34,8 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class UserService {
@@ -42,24 +49,35 @@ public class UserService {
 
     private final MallUserMapper userMapper;
     private final JdbcClient jdbcClient;
-    private final RedisTemplate<String, UserCache> userCacheRedisTemplate;
+    private final RedisTemplate<String, AuthUserCache> authUserCacheRedisTemplate;
+    private final RedisTemplate<String, UserProfileCache> userProfileCacheRedisTemplate;
+    private final RedisTemplate<String, TokenSessionCache> tokenSessionRedisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
     private final String jwtSecret;
     private final long jwtTtlSeconds;
     private final Duration userCacheTtl;
+    private final Duration tokenTtl;
 
     public UserService(
             MallUserMapper userMapper,
             JdbcClient jdbcClient,
-            RedisTemplate<String, UserCache> userCacheRedisTemplate,
+            @Qualifier("authUserCacheRedisTemplate") RedisTemplate<String, AuthUserCache> authUserCacheRedisTemplate,
+            @Qualifier("userProfileCacheRedisTemplate") RedisTemplate<String, UserProfileCache> userProfileCacheRedisTemplate,
+            @Qualifier("tokenSessionRedisTemplate") RedisTemplate<String, TokenSessionCache> tokenSessionRedisTemplate,
+            StringRedisTemplate stringRedisTemplate,
             @Value("${mall.jwt.secret}") String jwtSecret,
             @Value("${mall.jwt.ttl-seconds}") long jwtTtlSeconds,
             @Value("${mall.user-cache.ttl-seconds}") long userCacheTtlSeconds) {
         this.userMapper = userMapper;
         this.jdbcClient = jdbcClient;
-        this.userCacheRedisTemplate = userCacheRedisTemplate;
+        this.authUserCacheRedisTemplate = authUserCacheRedisTemplate;
+        this.userProfileCacheRedisTemplate = userProfileCacheRedisTemplate;
+        this.tokenSessionRedisTemplate = tokenSessionRedisTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
         this.jwtSecret = jwtSecret;
         this.jwtTtlSeconds = jwtTtlSeconds;
         this.userCacheTtl = Duration.ofSeconds(userCacheTtlSeconds);
+        this.tokenTtl = Duration.ofSeconds(jwtTtlSeconds);
     }
 
     @Transactional
@@ -89,14 +107,53 @@ public class UserService {
             throw new IllegalStateException("user disabled");
         }
 
-        long exp = Instant.now().plusSeconds(jwtTtlSeconds).getEpochSecond();
+        long issuedAt = Instant.now().getEpochSecond();
+        long exp = issuedAt + jwtTtlSeconds;
+        String tokenId = UUID.randomUUID().toString();
         String token = JwtUtil.createToken(new JwtClaims(
+                tokenId,
                 user.getId(),
                 user.getUsername(),
                 user.getRole(),
                 user.getLevel(),
                 exp), jwtSecret);
+        cacheTokenSession(new TokenSessionCache(
+                tokenId,
+                user.getId(),
+                user.getUsername(),
+                user.getRole(),
+                user.getLevel(),
+                issuedAt,
+                exp));
         return new LoginResponse("Bearer", token, jwtTtlSeconds, UserResponse.from(user));
+    }
+
+    public void logout(String tokenId, long userId) {
+        if (tokenId == null || tokenId.isBlank()) {
+            throw new IllegalArgumentException("missing token id");
+        }
+        tokenSessionRedisTemplate.delete(RedisKeys.tokenSession(tokenId));
+        stringRedisTemplate.opsForSet().remove(RedisKeys.userTokens(userId), tokenId);
+    }
+
+    public UserResponse getByAuthorizationToken(String authorization) {
+        JwtClaims claims = parseBearerToken(authorization);
+        TokenSessionCache session = tokenSessionRedisTemplate.opsForValue().get(RedisKeys.tokenSession(claims.jti()));
+        if (session == null) {
+            throw new UserUnauthorizedException("token session expired or logged out");
+        }
+        if (session.userId() == null
+                || claims.userId() != session.userId()
+                || !claims.username().equals(session.username())
+                || !claims.role().equals(session.role())
+                || !claims.level().equals(session.level())) {
+            throw new UserUnauthorizedException("token session mismatch");
+        }
+        UserResponse user = getById(claims.userId());
+        if (user.status() == null || user.status() != STATUS_ENABLED) {
+            throw new UserUnauthorizedException("user disabled");
+        }
+        return user;
     }
 
     public UserResponse getById(long userId) {
@@ -126,6 +183,7 @@ public class UserService {
         }
         userMapper.updateById(user);
         evictUserCache(user);
+        evictUserTokens(userId);
         MallUser updated = userMapper.selectById(userId);
         cacheUser(updated);
         return UserResponse.from(updated);
@@ -197,8 +255,27 @@ public class UserService {
         }
     }
 
+    private JwtClaims parseBearerToken(String authorization) {
+        if (authorization == null || authorization.isBlank()) {
+            throw new UserUnauthorizedException("missing Authorization or accessToken header");
+        }
+        String value = authorization.trim();
+        if (!value.startsWith("Bearer ")) {
+            throw new UserUnauthorizedException("Authorization header must start with Bearer");
+        }
+        String token = value.substring("Bearer ".length()).trim();
+        if (token.startsWith("{") && token.endsWith("}") && token.length() > 2) {
+            token = token.substring(1, token.length() - 1).trim();
+        }
+        try {
+            return JwtUtil.parseAndValidate(token, jwtSecret);
+        } catch (RuntimeException ex) {
+            throw new UserUnauthorizedException(ex.getMessage());
+        }
+    }
+
     private MallUser findByUsernameWithCache(String username) {
-        UserCache cached = userCacheRedisTemplate.opsForValue().get(RedisKeys.userAuth(username));
+        AuthUserCache cached = authUserCacheRedisTemplate.opsForValue().get(RedisKeys.userAuth(username));
         if (cached != null) {
             return cached.toEntity();
         }
@@ -212,7 +289,7 @@ public class UserService {
     }
 
     private MallUser findByIdWithCache(long userId) {
-        UserCache cached = userCacheRedisTemplate.opsForValue().get(RedisKeys.userById(userId));
+        UserProfileCache cached = userProfileCacheRedisTemplate.opsForValue().get(RedisKeys.userById(userId));
         if (cached != null) {
             return cached.toEntity();
         }
@@ -228,17 +305,33 @@ public class UserService {
         if (user == null) {
             return;
         }
-        UserCache value = UserCache.from(user);
-        userCacheRedisTemplate.opsForValue().set(RedisKeys.userAuth(user.getUsername()), value, userCacheTtl);
-        userCacheRedisTemplate.opsForValue().set(RedisKeys.userById(user.getId()), value, userCacheTtl);
+        authUserCacheRedisTemplate.opsForValue().set(RedisKeys.userAuth(user.getUsername()), AuthUserCache.from(user), userCacheTtl);
+        userProfileCacheRedisTemplate.opsForValue().set(RedisKeys.userById(user.getId()), UserProfileCache.from(user), userCacheTtl);
     }
 
     private void evictUserCache(MallUser user) {
         if (user == null) {
             return;
         }
-        userCacheRedisTemplate.delete(RedisKeys.userAuth(user.getUsername()));
-        userCacheRedisTemplate.delete(RedisKeys.userById(user.getId()));
+        authUserCacheRedisTemplate.delete(RedisKeys.userAuth(user.getUsername()));
+        userProfileCacheRedisTemplate.delete(RedisKeys.userById(user.getId()));
+    }
+
+    private void cacheTokenSession(TokenSessionCache session) {
+        tokenSessionRedisTemplate.opsForValue().set(RedisKeys.tokenSession(session.tokenId()), session, tokenTtl);
+        stringRedisTemplate.opsForSet().add(RedisKeys.userTokens(session.userId()), session.tokenId());
+        stringRedisTemplate.expire(RedisKeys.userTokens(session.userId()), tokenTtl);
+    }
+
+    private void evictUserTokens(long userId) {
+        String userTokenKey = RedisKeys.userTokens(userId);
+        Set<String> tokenIds = stringRedisTemplate.opsForSet().members(userTokenKey);
+        if (tokenIds != null && !tokenIds.isEmpty()) {
+            tokenSessionRedisTemplate.delete(tokenIds.stream()
+                    .map(RedisKeys::tokenSession)
+                    .toList());
+        }
+        stringRedisTemplate.delete(userTokenKey);
     }
 
     private long queryCount(String sql, List<Object> params) {

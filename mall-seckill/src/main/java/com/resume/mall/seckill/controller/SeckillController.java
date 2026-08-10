@@ -5,6 +5,7 @@ import com.resume.mall.common.PageResult;
 import com.resume.mall.common.ReserveResult;
 import com.resume.mall.seckill.service.SeckillService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -34,7 +35,7 @@ public class SeckillController {
     @PostMapping("/api/seckill/{activityId}/reserve")
     public ApiResponse<ReserveResult> reserve(
             @PathVariable("activityId") long activityId,
-            @RequestHeader("X-User-Id") long userId,
+            @Parameter(hidden = true) @RequestHeader("X-User-Id") long userId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return ApiResponse.ok(seckillService.reserve(activityId, userId, idempotencyKey));
     }

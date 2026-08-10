@@ -8,6 +8,7 @@ import com.resume.mall.order.dto.StockCheckResponse;
 import com.resume.mall.order.entity.RetailOrder;
 import com.resume.mall.order.service.RetailOrderService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -41,7 +42,7 @@ public class OrderController {
     @Operation(summary = "创建普通订单", description = "检查商品和库存，扣减可售库存，生成 CREATED 状态订单；支持 Idempotency-Key 幂等。失败时会返回结构化库存检查结果。")
     @PostMapping
     public ApiResponse<RetailOrderResponse> create(
-            @RequestHeader("X-User-Id") long userId,
+            @Parameter(hidden = true) @RequestHeader("X-User-Id") long userId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateOrderRequest request) {
         String key = idempotencyKey == null || idempotencyKey.isBlank()

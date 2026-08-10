@@ -10,8 +10,10 @@ import com.resume.mall.user.dto.UpdateUserRequest;
 import com.resume.mall.user.dto.UserResponse;
 import com.resume.mall.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,10 +48,37 @@ public class UserController {
         return ApiResponse.ok(userService.login(request));
     }
 
+    @Operation(summary = "退出登录", description = "需要通过 Gateway 携带 Authorization: Bearer token。退出后 Redis 中的 token 会话会被删除。")
+    @PostMapping("/auth/logout")
+    public ApiResponse<Void> logout(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.TOKEN_ID) String tokenId,
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId) {
+        userService.logout(tokenId, userId);
+        return ApiResponse.ok(null);
+    }
+
     @Operation(summary = "查询当前登录用户", description = "需要通过 Gateway 携带 Authorization: Bearer token。")
     @GetMapping("/users/me")
-    public ApiResponse<UserResponse> me(@RequestHeader(UserHeaders.USER_ID) long userId) {
-        return ApiResponse.ok(userService.getById(userId));
+    public ApiResponse<UserResponse> me(
+            @Parameter(hidden = true) @RequestHeader(value = UserHeaders.USER_ID, required = false) Long userId,
+            @Parameter(description = "登录接口返回的 Bearer Token，例如：Bearer eyJhbGciOiJIUzI1NiJ9...")
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @Parameter(description = "Swagger 测试可直接填写登录响应里的 accessToken，不需要 Bearer 前缀。")
+            @RequestHeader(value = "accessToken", required = false) String accessToken) {
+        if (userId != null) {
+            return ApiResponse.ok(userService.getById(userId));
+        }
+        return ApiResponse.ok(userService.getByAuthorizationToken(resolveTokenHeader(authorization, accessToken)));
+    }
+
+    @Operation(summary = "根据请求头 Token 查询用户信息", description = "直接读取 Authorization: Bearer token，校验 JWT 和 Redis token 会话后返回当前用户信息。")
+    @GetMapping("/auth/me")
+    public ApiResponse<UserResponse> authMe(
+            @Parameter(description = "登录接口返回的 Bearer Token，例如：Bearer eyJhbGciOiJIUzI1NiJ9...")
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @Parameter(description = "Swagger 测试可直接填写登录响应里的 accessToken，不需要 Bearer 前缀。")
+            @RequestHeader(value = "accessToken", required = false) String accessToken) {
+        return ApiResponse.ok(userService.getByAuthorizationToken(resolveTokenHeader(authorization, accessToken)));
     }
 
     @Operation(summary = "分页查询用户", description = "管理员接口。支持按用户名、角色、等级、状态查询。")
@@ -70,5 +99,16 @@ public class UserController {
             @PathVariable("userId") long userId,
             @Valid @RequestBody UpdateUserRequest request) {
         return ApiResponse.ok(userService.updateUser(userId, request));
+    }
+
+    private String resolveTokenHeader(String authorization, String accessToken) {
+        if (authorization != null && !authorization.isBlank()) {
+            return authorization;
+        }
+        if (accessToken != null && !accessToken.isBlank()) {
+            String value = accessToken.trim();
+            return value.startsWith("Bearer ") ? value : "Bearer " + value;
+        }
+        return authorization;
     }
 }

@@ -14,6 +14,12 @@ import java.util.NoSuchElementException;
 
 @RestControllerAdvice
 public class UserExceptionHandler {
+    @ExceptionHandler(UserUnauthorizedException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ApiResponse<Void> unauthorized(UserUnauthorizedException ex) {
+        return ApiResponse.fail(401, ex.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> badRequest(IllegalArgumentException ex) {

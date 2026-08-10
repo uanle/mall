@@ -18,6 +18,7 @@ public final class JwtUtil {
     public static String createToken(JwtClaims claims, String secret) {
         String header = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
         String payload = "{"
+                + "\"jti\":\"" + escape(claims.jti()) + "\","
                 + "\"userId\":" + claims.userId() + ","
                 + "\"username\":\"" + escape(claims.username()) + "\","
                 + "\"role\":\"" + escape(claims.role()) + "\","
@@ -49,6 +50,7 @@ public final class JwtUtil {
             throw new IllegalArgumentException("token expired");
         }
         return new JwtClaims(
+                required(values, "jti"),
                 Long.parseLong(required(values, "userId")),
                 required(values, "username"),
                 required(values, "role"),

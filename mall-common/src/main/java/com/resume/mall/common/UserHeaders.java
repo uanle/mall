@@ -5,6 +5,7 @@ public final class UserHeaders {
     public static final String USERNAME = "X-Username";
     public static final String USER_ROLE = "X-User-Role";
     public static final String USER_LEVEL = "X-User-Level";
+    public static final String TOKEN_ID = "X-Token-Id";
 
     private UserHeaders() {
     }

@@ -31,4 +31,12 @@ public final class RedisKeys {
     public static String userById(long userId) {
         return "cache:user:id:" + userId;
     }
+
+    public static String userTokens(long userId) {
+        return "cache:user:tokens:" + userId;
+    }
+
+    public static String tokenSession(String tokenId) {
+        return "cache:token:" + tokenId;
+    }
 }

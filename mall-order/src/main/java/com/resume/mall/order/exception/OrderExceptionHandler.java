@@ -32,6 +32,12 @@ public class OrderExceptionHandler {
         return ApiResponse.fail(409, ex.getMessage());
     }
 
+    @ExceptionHandler(SecurityException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ApiResponse<Void> forbidden(SecurityException ex) {
+        return ApiResponse.fail(403, ex.getMessage());
+    }
+
     @ExceptionHandler(NoSuchElementException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiResponse<Void> notFound(NoSuchElementException ex) {

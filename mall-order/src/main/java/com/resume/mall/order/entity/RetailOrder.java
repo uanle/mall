@@ -17,6 +17,7 @@ public class RetailOrder {
     private Long amountCent;
     private String status;
     private String idempotencyKey;
+    private Long payerUserId;
     private LocalDateTime paidAt;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
@@ -83,6 +84,14 @@ public class RetailOrder {
 
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public Long getPayerUserId() {
+        return payerUserId;
+    }
+
+    public void setPayerUserId(Long payerUserId) {
+        this.payerUserId = payerUserId;
     }
 
     public LocalDateTime getPaidAt() {

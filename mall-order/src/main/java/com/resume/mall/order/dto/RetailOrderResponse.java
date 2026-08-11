@@ -12,6 +12,7 @@ public record RetailOrderResponse(
         Long amountCent,
         String status,
         String idempotencyKey,
+        Long payerUserId,
         LocalDateTime createdAt,
         LocalDateTime paidAt,
         LocalDateTime completedAt
@@ -25,6 +26,7 @@ public record RetailOrderResponse(
                 order.getAmountCent(),
                 order.getStatus(),
                 order.getIdempotencyKey(),
+                order.getPayerUserId(),
                 order.getCreatedAt(),
                 order.getPaidAt(),
                 order.getCompletedAt());

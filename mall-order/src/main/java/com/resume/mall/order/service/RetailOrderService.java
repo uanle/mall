@@ -87,7 +87,7 @@ public class RetailOrderService {
     }
 
     @Transactional
-    public RetailOrderResponse pay(String orderNo) {
+    public RetailOrderResponse pay(String orderNo, long payerUserId, boolean allowHelpPay) {
         RetailOrder order = findByOrderNo(orderNo);
         if (order == null) {
             throw new IllegalArgumentException("order not found");
@@ -98,11 +98,15 @@ public class RetailOrderService {
         if (!CREATED.equals(order.getStatus())) {
             throw new IllegalStateException("order cannot be paid in status " + order.getStatus());
         }
+        if (!allowHelpPay && !order.getUserId().equals(payerUserId)) {
+            throw new SecurityException("only the order owner can pay this order");
+        }
 
         orderMapper.update(null, new LambdaUpdateWrapper<RetailOrder>()
                 .eq(RetailOrder::getOrderNo, orderNo)
                 .eq(RetailOrder::getStatus, CREATED)
                 .set(RetailOrder::getStatus, PAID)
+                .set(RetailOrder::getPayerUserId, payerUserId)
                 .set(RetailOrder::getPaidAt, LocalDateTime.now()));
         return RetailOrderResponse.from(findByOrderNo(orderNo));
     }
@@ -230,7 +234,7 @@ public class RetailOrderService {
         dataParams.add(offset);
         List<Map<String, Object>> records = queryRows("""
                         select order_no, user_id, product_id, quantity, amount_cent, status,
-                               idempotency_key, paid_at, completed_at, created_at, updated_at
+                               idempotency_key, payer_user_id, paid_at, completed_at, created_at, updated_at
                         from retail_order
                         """ + where + " order by created_at desc, id desc limit ? offset ?",
                 dataParams);

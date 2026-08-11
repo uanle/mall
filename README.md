@@ -97,7 +97,7 @@ $login = Invoke-RestMethod `
 $token = $login.data.accessToken
 ```
 
-6. Initialize Redis stock with admin token:
+6. Create a seckill activity with admin token:
 
 ```powershell
 $adminLogin = Invoke-RestMethod `
@@ -110,7 +110,10 @@ $adminToken = $adminLogin.data.accessToken
 ```
 
 ```powershell
-curl.exe -X POST "http://localhost:8080/internal/seckill/1001/stock?quantity=1000" -H "Authorization: Bearer $adminToken"
+curl.exe -X POST "http://localhost:8080/internal/seckill/activities" `
+  -H "Authorization: Bearer $adminToken" `
+  -H "Content-Type: application/json" `
+  -d '{"id":1101,"productId":2001,"startTime":"2026-08-11T00:00:00","endTime":"2026-08-31T23:59:59","totalStock":1000,"status":1}'
 ```
 
 7. Submit a seckill request through the gateway:
@@ -118,12 +121,32 @@ curl.exe -X POST "http://localhost:8080/internal/seckill/1001/stock?quantity=100
 ```powershell
 $requestId = [guid]::NewGuid().ToString()
 
-curl.exe -X POST "http://localhost:8080/api/seckill/1001/reserve" `
+curl.exe -X POST "http://localhost:8080/api/seckill/1101/reserve" `
   -H "Authorization: Bearer $token" `
   -H "Idempotency-Key: $requestId"
 
 Start-Sleep -Seconds 2
 curl.exe "http://localhost:8080/api/orders/seckill-requests/$requestId"
+```
+
+Pay and complete the seckill order:
+
+```powershell
+$seckillOrder = Invoke-RestMethod `
+  -Method Get `
+  -Uri "http://localhost:8080/api/orders/seckill-requests/$requestId" `
+  -Headers @{ Authorization = "Bearer $token" }
+
+$orderNo = $seckillOrder.data.order_no
+
+curl.exe -X POST "http://localhost:8080/api/orders/seckill-orders/$orderNo/payments" -H "Authorization: Bearer $token"
+curl.exe -X POST "http://localhost:8080/api/orders/seckill-orders/$orderNo/completion" -H "Authorization: Bearer $token"
+```
+
+Use the dedicated help-payment endpoint when another logged-in user pays for the order:
+
+```powershell
+curl.exe -X POST "http://localhost:8080/api/orders/seckill-orders/$orderNo/help-payments" -H "Authorization: Bearer $otherUserToken"
 ```
 
 ## Retail Order Flow

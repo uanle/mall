@@ -37,3 +37,7 @@ management:
     web:
       exposure:
         include: health,metrics,prometheus
+
+mall:
+  order:
+    seckill-payment-timeout-minutes: 15

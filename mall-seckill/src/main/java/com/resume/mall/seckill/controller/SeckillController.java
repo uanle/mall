@@ -3,15 +3,18 @@ package com.resume.mall.seckill.controller;
 import com.resume.mall.common.ApiResponse;
 import com.resume.mall.common.PageResult;
 import com.resume.mall.common.ReserveResult;
+import com.resume.mall.seckill.dto.CreateSeckillActivityRequest;
 import com.resume.mall.seckill.service.SeckillService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,12 +43,26 @@ public class SeckillController {
         return ApiResponse.ok(seckillService.reserve(activityId, userId, idempotencyKey));
     }
 
-    @Operation(summary = "初始化秒杀 Redis 库存", description = "内部测试接口，用于把指定活动库存写入 Redis。quantity 必须大于等于 0。")
-    @PostMapping("/internal/seckill/{activityId}/stock")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void initStock(@PathVariable("activityId") long activityId, @RequestParam("quantity") int quantity) {
-        seckillService.initStock(activityId, quantity);
+    @Operation(summary = "创建秒杀活动", description = "创建秒杀活动，将活动记录到MySQL数据库以及Redis缓存中.")
+    @PostMapping("/internal/seckill/activities")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<Map<String, Object>> createActivity(@Valid @RequestBody CreateSeckillActivityRequest request) {
+        return ApiResponse.ok(seckillService.createActivity(request));
     }
+
+//    @Operation(summary = "初始化秒杀 Redis 库存", description = "内部测试接口，用于把指定活动库存写入 Redis。quantity 必须大于等于 0。")
+//    @PostMapping("/internal/seckill/{activityId}/stock")
+//    @ResponseStatus(HttpStatus.NO_CONTENT)
+//    public void initStock(@PathVariable("activityId") long activityId, @RequestParam("quantity") int quantity) {
+//        seckillService.initStock(activityId, quantity);
+//    }
+//
+//    @Operation(summary = "Initialize seckill activity Redis stock", description = "Preferred internal path. The Redis key expires at the activity end time.")
+//    @PostMapping("/internal/seckill/activities/{activityId}/stock")
+//    @ResponseStatus(HttpStatus.NO_CONTENT)
+//    public void initActivityStock(@PathVariable("activityId") long activityId, @RequestParam("quantity") int quantity) {
+//        seckillService.initStock(activityId, quantity);
+//    }
 
     @Operation(summary = "分页查询秒杀活动", description = "支持按商品 ID、商品名称、活动状态、开始时间区间查询。时间格式：yyyy-MM-dd'T'HH:mm:ss。")
     @GetMapping("/api/seckill/activities")

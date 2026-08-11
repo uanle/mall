@@ -5,8 +5,10 @@ import com.resume.mall.common.OrderCreateMessage;
 import com.resume.mall.common.RabbitNames;
 import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.ReserveResult;
+import com.resume.mall.seckill.dto.CreateSeckillActivityRequest;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -20,11 +22,10 @@ import java.util.List;
 import java.util.UUID;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class SeckillService {
-    private static final long PRODUCT_ID = 2001L;
-    private static final long AMOUNT_CENT = 199900L;
     private static final Duration IDEMPOTENT_TTL = Duration.ofHours(2);
 
     private static final String RESERVE_STOCK_LUA = """
@@ -57,9 +58,24 @@ public class SeckillService {
     }
 
     public ReserveResult reserve(long activityId, long userId, String idempotencyKey) {
+        ActivitySnapshot activity = findActiveActivity(activityId);
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(activity.startTime())) {
+            throw new IllegalStateException("activity has not started");
+        }
+        if (!now.isBefore(activity.endTime())) {
+            throw new IllegalStateException("activity has ended");
+        }
+
         String requestId = idempotencyKey == null || idempotencyKey.isBlank()
                 ? UUID.randomUUID().toString()
                 : idempotencyKey;
+        if (requestAlreadyAccepted(requestId)) {
+            return new ReserveResult(requestId, "DUPLICATE", "request already accepted");
+        }
+        if (userHasUnclosedOrder(userId, activityId)) {
+            throw new IllegalStateException("user already reserved this activity");
+        }
 
         List<String> keys = List.of(
                 RedisKeys.seckillStock(activityId),
@@ -86,8 +102,8 @@ public class SeckillService {
                 requestId,
                 userId,
                 activityId,
-                PRODUCT_ID,
-                AMOUNT_CENT,
+                activity.productId(),
+                activity.amountCent(),
                 Instant.now());
         try {
             rabbitTemplate.convertAndSend(
@@ -104,11 +120,72 @@ public class SeckillService {
         return new ReserveResult(requestId, "RESERVED", "order event published");
     }
 
+    public Map<String, Object> createActivity(CreateSeckillActivityRequest request) {
+        if (!request.startTime().isBefore(request.endTime())) {
+            throw new IllegalArgumentException("startTime must be before endTime");
+        }
+        if (!LocalDateTime.now().isBefore(request.endTime())) {
+            throw new IllegalArgumentException("endTime must be in the future");
+        }
+        int status = request.status() == null ? 1 : request.status();
+        if (status != 0 && status != 1) {
+            throw new IllegalArgumentException("status must be 0 or 1");
+        }
+        ensureActiveProductExists(request.productId());
+
+        long activityId = request.id() == null ? generateActivityId() : request.id();
+        try {
+            jdbcClient.sql("""
+                            insert into seckill_activity(id, product_id, start_time, end_time, total_stock, status)
+                            values (?, ?, ?, ?, ?, ?)
+                            """)
+                    .param(activityId)
+                    .param(request.productId())
+                    .param(request.startTime())
+                    .param(request.endTime())
+                    .param(request.totalStock())
+                    .param(status)
+                    .update();
+        } catch (DuplicateKeyException ex) {
+            throw new IllegalStateException("activity id already exists");
+        }
+
+        if (status == 1) {
+            initStock(activityId, request.totalStock());
+        }
+        return getActivity(activityId);
+    }
+
     public void initStock(long activityId, int quantity) {
         if (quantity < 0) {
             throw new IllegalArgumentException("quantity must be non-negative");
         }
-        redisTemplate.opsForValue().set(RedisKeys.seckillStock(activityId), String.valueOf(quantity));
+        ActivitySnapshot activity = findActiveActivity(activityId);
+        if (quantity > activity.totalStock()) {
+            throw new IllegalArgumentException("quantity must not exceed activity total stock");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (!now.isBefore(activity.endTime())) {
+            throw new IllegalStateException("activity has ended");
+        }
+        Duration ttl = Duration.between(now, activity.endTime());
+        redisTemplate.opsForValue().set(RedisKeys.seckillStock(activityId), String.valueOf(quantity), ttl);
+    }
+
+    public Map<String, Object> getActivity(long activityId) {
+        List<Map<String, Object>> rows = queryRows("""
+                        select a.id, a.product_id, p.name as product_name, p.price_cent,
+                               a.total_stock, a.start_time, a.end_time, a.status,
+                               a.created_at, a.updated_at
+                        from seckill_activity a
+                        join product p on p.id = a.product_id
+                        where a.id = ?
+                        """,
+                List.of(activityId));
+        if (rows.isEmpty()) {
+            throw new NoSuchElementException("activity not found");
+        }
+        return rows.get(0);
     }
 
     public PageResult<Map<String, Object>> pageActivities(
@@ -243,5 +320,70 @@ public class SeckillService {
             spec = spec.param(param);
         }
         return spec.query().listOfRows();
+    }
+
+    private ActivitySnapshot findActiveActivity(long activityId) {
+        return jdbcClient.sql("""
+                        select a.product_id, p.price_cent, a.total_stock, a.start_time, a.end_time
+                        from seckill_activity a
+                        join product p on p.id = a.product_id
+                        where a.id = ?
+                          and a.status = 1
+                          and p.status = 1
+                        """)
+                .param(activityId)
+                .query((rs, rowNum) -> new ActivitySnapshot(
+                        rs.getLong("product_id"),
+                        rs.getLong("price_cent"),
+                        rs.getInt("total_stock"),
+                        rs.getTimestamp("start_time").toLocalDateTime(),
+                        rs.getTimestamp("end_time").toLocalDateTime()))
+                .optional()
+                .orElseThrow(() -> new IllegalArgumentException("active activity not found"));
+    }
+
+    private void ensureActiveProductExists(long productId) {
+        long count = jdbcClient.sql("select count(*) from product where id = ? and status = 1")
+                .param(productId)
+                .query(Long.class)
+                .single();
+        if (count == 0) {
+            throw new IllegalArgumentException("active product not found");
+        }
+    }
+
+    private long generateActivityId() {
+        return System.currentTimeMillis() * 1000 + ThreadLocalRandom.current().nextInt(1000);
+    }
+
+    private boolean requestAlreadyAccepted(String requestId) {
+        long count = jdbcClient.sql("select count(*) from trade_order where request_id = ?")
+                .param(requestId)
+                .query(Long.class)
+                .single();
+        return count > 0;
+    }
+
+    private boolean userHasUnclosedOrder(long userId, long activityId) {
+        long count = jdbcClient.sql("""
+                        select count(*)
+                        from trade_order
+                        where user_id = ?
+                          and activity_id = ?
+                          and status in ('NEW', 'PAID', 'COMPLETED')
+                        """)
+                .param(userId)
+                .param(activityId)
+                .query(Long.class)
+                .single();
+        return count > 0;
+    }
+
+    private record ActivitySnapshot(
+            long productId,
+            long amountCent,
+            int totalStock,
+            LocalDateTime startTime,
+            LocalDateTime endTime) {
     }
 }

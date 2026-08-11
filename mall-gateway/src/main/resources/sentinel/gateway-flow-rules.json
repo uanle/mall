@@ -8,6 +8,8 @@
   {"resource":"auth-register","resourceMode":0,"grade":1,"count":2,"intervalSec":10,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
   {"resource":"user","resourceMode":0,"grade":1,"count":200,"intervalSec":1,"controlBehavior":0,"burst":10},
   {"resource":"user","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":5,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"audit-query","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"audit-query","resourceMode":0,"grade":1,"count":10,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
 
   {"resource":"catalog-read","resourceMode":0,"grade":1,"count":400,"intervalSec":1,"controlBehavior":0,"burst":20},
   {"resource":"catalog-read","resourceMode":0,"grade":1,"count":40,"intervalSec":1,"controlBehavior":0,"burst":5,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},

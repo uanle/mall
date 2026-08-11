@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: mall-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          service: mall-gateway
+      - targets: ["host.docker.internal:8081"]
+        labels:
+          service: mall-product
+      - targets: ["host.docker.internal:8082"]
+        labels:
+          service: mall-seckill
+      - targets: ["host.docker.internal:8083"]
+        labels:
+          service: mall-order
+      - targets: ["host.docker.internal:8084"]
+        labels:
+          service: mall-user

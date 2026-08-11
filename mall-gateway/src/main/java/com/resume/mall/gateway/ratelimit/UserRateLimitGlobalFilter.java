@@ -60,8 +60,11 @@ public class UserRateLimitGlobalFilter implements GlobalFilter, Ordered {
         try {
             entry.exit(1, args);
         } catch (RuntimeException ex) {
-            LOGGER.warn("Failed to exit Sentinel async entry for resource {}",
-                    entry.getResourceWrapper().getName(), ex);
+            LOGGER.atWarn()
+                    .addKeyValue("event", "sentinel_async_entry_exit_failed")
+                    .addKeyValue("resource", entry.getResourceWrapper().getName())
+                    .setCause(ex)
+                    .log("Failed to exit Sentinel async entry");
         }
     }
 }

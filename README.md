@@ -96,6 +96,53 @@ console.
 .\scripts\start-services.ps1 -Build
 ```
 
+Structured application logs are written locally to `logs/*-app.log` by default.
+View a compact local summary without Docker:
+
+```powershell
+.\scripts\watch-logs.ps1
+.\scripts\watch-logs.ps1 -Service gateway -Follow
+```
+
+Prometheus metrics are available from each service, for example
+`http://localhost:8080/actuator/prometheus` for the gateway.
+
+User API access audit records are stored in MySQL table
+`user_api_access_log`. If the database was initialized before this table was
+added, run:
+
+```powershell
+Get-Content scripts\mysql\migrate-user-api-access-log.sql | & 'D:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -uroot -proot mall
+```
+
+Query audit records with an admin token through the gateway:
+
+```powershell
+curl.exe "http://localhost:8080/api/audit/access-logs?pageNum=1&pageSize=20&userId=2&success=false" -H "Authorization: Bearer $adminToken"
+```
+
+Docker is only needed if you want the full optional visual stack with Grafana,
+Loki, Alloy, Tempo, and Prometheus:
+
+```powershell
+docker compose --profile observability up -d
+.\scripts\stop-services.ps1
+.\scripts\start-services.ps1 -Build -TraceExport
+```
+
+Grafana is then available at `http://localhost:3000` with local credentials
+`admin / admin`. Application logs are collected from `logs/*-app.log`, and
+correlated with Tempo traces by `traceId`. See
+[`docs/observability.md`](docs/observability.md) for configuration, production
+guidance, and LogQL examples.
+
+`-TraceExport` enables OTLP trace export for the optional stack. The legacy
+`-Observability` switch is kept as an alias:
+
+```powershell
+.\scripts\start-services.ps1 -Build -TraceExport
+```
+
 5. Login and keep the token:
 
 ```powershell

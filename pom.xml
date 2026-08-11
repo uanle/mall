@@ -11,6 +11,7 @@
 
     <modules>
         <module>mall-common</module>
+        <module>mall-observability</module>
         <module>mall-gateway</module>
         <module>mall-user</module>
         <module>mall-product</module>

@@ -1,5 +1,7 @@
 param(
-    [switch]$Build
+    [switch]$Build,
+    [Alias('TraceExport')]
+    [switch]$Observability
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +56,10 @@ foreach ($Service in $Services) {
 
     $LogPath = Join-Path $LogDir $Service.Log
     $Arguments = @('-jar', $JarPath, "--logging.file.name=$LogPath")
+    if ($Observability) {
+        $Arguments += '--management.otlp.tracing.export.enabled=true'
+        $Arguments += '--management.tracing.sampling.probability=1.0'
+    }
     Start-Process -FilePath $JavaExe -ArgumentList $Arguments -WorkingDirectory $Workspace -WindowStyle Hidden
     Write-Host "Started $($Service.Name) on port $($Service.Port). Log: $LogPath"
 }

@@ -5,6 +5,8 @@ import com.resume.mall.common.JwtUtil;
 import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.UserHeaders;
 import com.resume.mall.gateway.ratelimit.GatewayRateLimitConstants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -25,8 +27,12 @@ import java.nio.charset.StandardCharsets;
 
 @Component
 public class AuthGlobalFilter implements GlobalFilter, Ordered {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuthGlobalFilter.class);
+
     private final String jwtSecret;
     private final ReactiveStringRedisTemplate redisTemplate;
+    @Value("${mall.gateway.management.public-prometheus:false}")
+    private boolean publicPrometheus;
 
     public AuthGlobalFilter(
             @Value("${mall.jwt.secret}") String jwtSecret,
@@ -50,6 +56,11 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
                     request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION),
                     request.getHeaders().getFirst("accessToken"));
         } catch (IllegalArgumentException ex) {
+            LOGGER.atInfo()
+                    .addKeyValue("event", "gateway_authentication_rejected")
+                    .addKeyValue("path", path)
+                    .addKeyValue("reason", ex.getMessage())
+                    .log("Gateway authentication rejected");
             return writeError(exchange, HttpStatus.UNAUTHORIZED, ex.getMessage());
         }
 
@@ -57,12 +68,28 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         return redisTemplate.hasKey(RedisKeys.tokenSession(claims.jti()))
                 .flatMap(active -> {
                     if (!Boolean.TRUE.equals(active)) {
+                        LOGGER.atInfo()
+                                .addKeyValue("event", "gateway_authentication_rejected")
+                                .addKeyValue("path", path)
+                                .addKeyValue("userId", finalClaims.userId())
+                                .addKeyValue("reason", "inactive_session")
+                                .log("Gateway authentication rejected");
                         return writeError(exchange, HttpStatus.UNAUTHORIZED, "token session expired or logged out");
                     }
                     if (requiresAdmin(path, request.getMethod()) && !"ADMIN".equals(finalClaims.role())) {
+                        LOGGER.atInfo()
+                                .addKeyValue("event", "gateway_authorization_rejected")
+                                .addKeyValue("path", path)
+                                .addKeyValue("userId", finalClaims.userId())
+                                .addKeyValue("requiredRole", "ADMIN")
+                                .log("Gateway authorization rejected");
                         return writeError(exchange, HttpStatus.FORBIDDEN, "admin permission required");
                     }
 
+                    exchange.getAttributes().put(
+                            GatewayRateLimitConstants.AUTHENTICATED_USER_ID_ATTRIBUTE, finalClaims.userId());
+                    exchange.getAttributes().put(
+                            GatewayRateLimitConstants.AUTHENTICATED_USER_ROLE_ATTRIBUTE, finalClaims.role());
                     ServerHttpRequest mutatedRequest = request.mutate()
                             .headers(headers -> {
                                 headers.remove(UserHeaders.USER_ID);
@@ -104,6 +131,9 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         if (path.equals("/actuator/health") || path.startsWith("/actuator/health/")) {
             return true;
         }
+        if (publicPrometheus && path.equals("/actuator/prometheus")) {
+            return true;
+        }
         if (HttpMethod.GET.equals(method)
                 && (path.startsWith("/api/products") || path.startsWith("/api/activities"))) {
             return true;
@@ -113,6 +143,9 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
     private boolean requiresAdmin(String path, HttpMethod method) {
         if (path.startsWith("/actuator/")) {
+            return true;
+        }
+        if (path.startsWith("/api/audit/")) {
             return true;
         }
         if (path.startsWith("/internal/")) {

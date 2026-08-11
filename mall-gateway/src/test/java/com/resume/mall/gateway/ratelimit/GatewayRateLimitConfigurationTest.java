@@ -81,6 +81,7 @@ class GatewayRateLimitConfigurationTest {
     @Test
     void routesHighRiskOperationsToDedicatedSentinelResources() {
         assertThat(matchingRoute(HttpMethod.POST, "/api/auth/login")).isEqualTo("auth-login");
+        assertThat(matchingRoute(HttpMethod.GET, "/api/audit/access-logs")).isEqualTo("audit-query");
         assertThat(matchingRoute(HttpMethod.GET, "/api/products/2001")).isEqualTo("catalog-read");
         assertThat(matchingRoute(HttpMethod.POST, "/api/products")).isEqualTo("product-admin");
         assertThat(matchingRoute(HttpMethod.POST, "/api/seckill/1101/reserve"))

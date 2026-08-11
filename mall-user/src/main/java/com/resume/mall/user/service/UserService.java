@@ -18,6 +18,8 @@ import com.resume.mall.user.dto.UserResponse;
 import com.resume.mall.user.entity.MallUser;
 import com.resume.mall.user.exception.UserUnauthorizedException;
 import com.resume.mall.user.mapper.MallUserMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
@@ -41,6 +43,7 @@ import java.util.UUID;
 
 @Service
 public class UserService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(UserService.class);
     private static final String ROLE_ADMIN = "ADMIN";
     private static final String ROLE_USER = "USER";
     private static final String LEVEL_NONE = "NONE";
@@ -97,15 +100,30 @@ public class UserService {
         }
         MallUser saved = userMapper.selectById(user.getId());
         cacheUser(saved);
+        LOGGER.atInfo()
+                .addKeyValue("event", "user_registered")
+                .addKeyValue("userId", saved.getId())
+                .addKeyValue("role", saved.getRole())
+                .addKeyValue("level", saved.getLevel())
+                .log("User registered");
         return UserResponse.from(saved);
     }
 
     public LoginResponse login(LoginRequest request) {
         MallUser user = findByUsernameWithCache(request.username().trim());
         if (user == null || !user.getPasswordHash().equals(hashPassword(request.password()))) {
+            LOGGER.atInfo()
+                    .addKeyValue("event", "user_login_rejected")
+                    .addKeyValue("reason", "invalid_credentials")
+                    .log("User login rejected");
             throw new IllegalArgumentException("invalid username or password");
         }
         if (user.getStatus() == null || user.getStatus() != STATUS_ENABLED) {
+            LOGGER.atInfo()
+                    .addKeyValue("event", "user_login_rejected")
+                    .addKeyValue("userId", user.getId())
+                    .addKeyValue("reason", "user_disabled")
+                    .log("User login rejected");
             throw new IllegalStateException("user disabled");
         }
 
@@ -127,6 +145,12 @@ public class UserService {
                 user.getLevel(),
                 issuedAt,
                 exp));
+        LOGGER.atInfo()
+                .addKeyValue("event", "user_login_succeeded")
+                .addKeyValue("userId", user.getId())
+                .addKeyValue("role", user.getRole())
+                .addKeyValue("level", user.getLevel())
+                .log("User login succeeded");
         return new LoginResponse("Bearer", token, jwtTtlSeconds, UserResponse.from(user));
     }
 
@@ -136,6 +160,10 @@ public class UserService {
         }
         tokenSessionRedisTemplate.delete(RedisKeys.tokenSession(tokenId));
         stringRedisTemplate.opsForSet().remove(RedisKeys.userTokens(userId), tokenId);
+        LOGGER.atInfo()
+                .addKeyValue("event", "user_logged_out")
+                .addKeyValue("userId", userId)
+                .log("User logged out");
     }
 
     public UserResponse getByAuthorizationToken(String authorization) {
@@ -188,6 +216,13 @@ public class UserService {
         evictUserTokens(userId);
         MallUser updated = userMapper.selectById(userId);
         cacheUser(updated);
+        LOGGER.atInfo()
+                .addKeyValue("event", "user_access_updated")
+                .addKeyValue("userId", userId)
+                .addKeyValue("role", updated.getRole())
+                .addKeyValue("level", updated.getLevel())
+                .addKeyValue("status", updated.getStatus())
+                .log("User access attributes updated and sessions revoked");
         return UserResponse.from(updated);
     }
 
@@ -213,6 +248,10 @@ public class UserService {
         evictUserTokens(userId);
         MallUser updated = userMapper.selectById(userId);
         cacheUser(updated);
+        LOGGER.atInfo()
+                .addKeyValue("event", "username_changed")
+                .addKeyValue("userId", userId)
+                .log("Username changed and sessions revoked");
         return UserResponse.from(updated);
     }
 
@@ -229,6 +268,10 @@ public class UserService {
         userMapper.updateById(user);
         evictUserCache(user);
         evictUserTokens(userId);
+        LOGGER.atInfo()
+                .addKeyValue("event", "user_password_changed")
+                .addKeyValue("userId", userId)
+                .log("User password changed and sessions revoked");
     }
 
     @Transactional
@@ -243,6 +286,10 @@ public class UserService {
         }
         evictUserCache(user);
         evictUserTokens(userId);
+        LOGGER.atInfo()
+                .addKeyValue("event", "user_disabled")
+                .addKeyValue("userId", userId)
+                .log("User disabled and sessions revoked");
     }
 
     public PageResult<Map<String, Object>> pageUsers(int pageNum, int pageSize, String username, String role, String level, Integer status) {

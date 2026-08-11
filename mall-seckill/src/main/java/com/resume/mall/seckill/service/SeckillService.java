@@ -5,8 +5,11 @@ import com.resume.mall.common.OrderCreateMessage;
 import com.resume.mall.common.RabbitNames;
 import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.ReserveResult;
+import com.resume.mall.observability.LogValues;
 import com.resume.mall.seckill.dto.CreateSeckillActivityRequest;
 import com.resume.mall.seckill.dto.UpdateSeckillActivityRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.DuplicateKeyException;
@@ -27,6 +30,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class SeckillService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(SeckillService.class);
     private static final Duration IDEMPOTENT_TTL = Duration.ofHours(2);
 
     private static final String RESERVE_STOCK_LUA = """
@@ -72,6 +76,12 @@ public class SeckillService {
                 ? UUID.randomUUID().toString()
                 : idempotencyKey;
         if (requestAlreadyAccepted(requestId)) {
+            LOGGER.atInfo()
+                    .addKeyValue("event", "seckill_reservation_duplicate")
+                    .addKeyValue("requestId", LogValues.safe(requestId))
+                    .addKeyValue("activityId", activityId)
+                    .addKeyValue("userId", userId)
+                    .log("Seckill request was already accepted");
             return new ReserveResult(requestId, "DUPLICATE", "request already accepted");
         }
         if (userHasUnclosedOrder(userId, activityId)) {
@@ -96,6 +106,12 @@ public class SeckillService {
             throw new IllegalStateException("user already reserved this activity");
         }
         if (result == 3L) {
+            LOGGER.atInfo()
+                    .addKeyValue("event", "seckill_reservation_duplicate")
+                    .addKeyValue("requestId", LogValues.safe(requestId))
+                    .addKeyValue("activityId", activityId)
+                    .addKeyValue("userId", userId)
+                    .log("Seckill request was already reserved");
             return new ReserveResult(requestId, "DUPLICATE", "request already reserved");
         }
 
@@ -113,11 +129,25 @@ public class SeckillService {
                     message,
                     new CorrelationData(requestId));
         } catch (RuntimeException ex) {
+            LOGGER.atError()
+                    .addKeyValue("event", "order_message_publish_failed")
+                    .addKeyValue("requestId", LogValues.safe(requestId))
+                    .addKeyValue("activityId", activityId)
+                    .addKeyValue("userId", userId)
+                    .setCause(ex)
+                    .log("Failed to publish order creation message; reservation will be rolled back");
             redisTemplate.opsForValue().increment(RedisKeys.seckillStock(activityId));
             redisTemplate.delete(RedisKeys.seckillUser(activityId, userId));
             redisTemplate.delete(RedisKeys.seckillRequest(requestId));
             throw ex;
         }
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_reservation_accepted")
+                .addKeyValue("requestId", LogValues.safe(requestId))
+                .addKeyValue("activityId", activityId)
+                .addKeyValue("productId", activity.productId())
+                .addKeyValue("userId", userId)
+                .log("Seckill reservation accepted and order event published");
         return new ReserveResult(requestId, "RESERVED", "order event published");
     }
 
@@ -154,6 +184,13 @@ public class SeckillService {
         if (status == 1) {
             initStock(activityId, request.totalStock());
         }
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_activity_created")
+                .addKeyValue("activityId", activityId)
+                .addKeyValue("productId", request.productId())
+                .addKeyValue("totalStock", request.totalStock())
+                .addKeyValue("status", status)
+                .log("Seckill activity created");
         return getActivity(activityId);
     }
 
@@ -193,6 +230,13 @@ public class SeckillService {
         } else {
             redisTemplate.delete(RedisKeys.seckillStock(activityId));
         }
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_activity_updated")
+                .addKeyValue("activityId", activityId)
+                .addKeyValue("productId", productId)
+                .addKeyValue("totalStock", totalStock)
+                .addKeyValue("status", status)
+                .log("Seckill activity updated");
         return getActivity(activityId);
     }
 
@@ -202,6 +246,10 @@ public class SeckillService {
                 .param(activityId)
                 .update();
         redisTemplate.delete(RedisKeys.seckillStock(activityId));
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_activity_disabled")
+                .addKeyValue("activityId", activityId)
+                .log("Seckill activity disabled");
     }
 
     public void initStock(long activityId, int quantity) {
@@ -218,6 +266,12 @@ public class SeckillService {
         }
         Duration ttl = Duration.between(now, activity.endTime());
         redisTemplate.opsForValue().set(RedisKeys.seckillStock(activityId), String.valueOf(quantity), ttl);
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_stock_initialized")
+                .addKeyValue("activityId", activityId)
+                .addKeyValue("quantity", quantity)
+                .addKeyValue("ttlSeconds", ttl.toSeconds())
+                .log("Seckill stock initialized");
     }
 
     public Map<String, Object> getActivity(long activityId) {

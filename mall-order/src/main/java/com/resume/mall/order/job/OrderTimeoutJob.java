@@ -1,6 +1,8 @@
 package com.resume.mall.order.job;
 
 import com.resume.mall.common.RedisKeys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -14,6 +16,8 @@ import java.util.Map;
 
 @Component
 public class OrderTimeoutJob {
+    private static final Logger LOGGER = LoggerFactory.getLogger(OrderTimeoutJob.class);
+
     private final JdbcClient jdbcClient;
     private final StringRedisTemplate redisTemplate;
     private final int seckillPaymentTimeoutMinutes;
@@ -41,6 +45,7 @@ public class OrderTimeoutJob {
                 .query()
                 .listOfRows();
 
+        int closedCount = 0;
         for (Map<String, Object> row : rows) {
             Long orderId = ((Number) row.get("id")).longValue();
             Long userId = ((Number) row.get("user_id")).longValue();
@@ -57,7 +62,15 @@ public class OrderTimeoutJob {
                 redisTemplate.opsForValue().increment(RedisKeys.seckillStock(activityId));
                 redisTemplate.delete(RedisKeys.seckillUser(activityId, userId));
                 redisTemplate.delete(RedisKeys.seckillRequest(requestId));
+                closedCount++;
             }
+        }
+        if (!rows.isEmpty()) {
+            LOGGER.atInfo()
+                    .addKeyValue("event", "seckill_order_timeout_scan_completed")
+                    .addKeyValue("candidateCount", rows.size())
+                    .addKeyValue("closedCount", closedCount)
+                    .log("Seckill order timeout scan completed");
         }
     }
 }

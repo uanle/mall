@@ -1,6 +1,9 @@
 package com.resume.mall.order.service;
 
 import com.resume.mall.common.RedisKeys;
+import com.resume.mall.observability.LogValues;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -12,6 +15,7 @@ import java.util.Map;
 
 @Service
 public class TradeOrderService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TradeOrderService.class);
     private static final String NEW = "NEW";
     private static final String PAID = "PAID";
     private static final String COMPLETED = "COMPLETED";
@@ -49,7 +53,15 @@ public class TradeOrderService {
                 .param(orderNo)
                 .update();
         cleanupReservationMarkers(order);
-        return findByOrderNoOrThrow(orderNo);
+        Map<String, Object> paidOrder = findByOrderNoOrThrow(orderNo);
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_order_paid")
+                .addKeyValue("orderNo", LogValues.safe(orderNo))
+                .addKeyValue("userId", ownerUserId)
+                .addKeyValue("payerUserId", payerUserId)
+                .addKeyValue("helpPayment", allowHelpPay)
+                .log("Seckill order paid");
+        return paidOrder;
     }
 
     @Transactional
@@ -71,7 +83,14 @@ public class TradeOrderService {
                 .param(LocalDateTime.now())
                 .param(orderNo)
                 .update();
-        return findByOrderNoOrThrow(orderNo);
+        Map<String, Object> completedOrder = findByOrderNoOrThrow(orderNo);
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_order_completed")
+                .addKeyValue("orderNo", LogValues.safe(orderNo))
+                .addKeyValue("userId", order.get("user_id"))
+                .addKeyValue("activityId", order.get("activity_id"))
+                .log("Seckill order completed");
+        return completedOrder;
     }
 
     public Map<String, Object> findByRequestId(String requestId) {

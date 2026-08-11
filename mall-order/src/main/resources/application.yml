@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: mall-order
+  config:
+    import: classpath:mall-observability.yml
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher
@@ -23,6 +25,7 @@ spring:
     password: mall
     listener:
       simple:
+        observation-enabled: true
         acknowledge-mode: auto
         retry:
           enabled: true

@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: mall-gateway
+  config:
+    import: classpath:mall-observability.yml
   profiles:
     default: local
   data:
@@ -11,6 +13,10 @@ spring:
       host: localhost
       port: 6379
       password: root
+  datasource:
+    url: jdbc:mysql://localhost:3306/mall?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
   cloud:
     sentinel:
       enabled: ${SENTINEL_ENABLED:true}
@@ -43,6 +49,10 @@ spring:
               uri: http://localhost:8084
               predicates:
                 - Path=/api/auth/**,/api/users/**
+            - id: audit-query
+              uri: http://localhost:8084
+              predicates:
+                - Path=/api/audit/**
 
             - id: catalog-read
               uri: http://localhost:8081
@@ -146,6 +156,8 @@ mall:
   jwt:
     secret: mall-local-dev-secret-change-me
   gateway:
+    access-audit:
+      enabled: ${MALL_GATEWAY_ACCESS_AUDIT_ENABLED:true}
     rate-limit:
       enabled: ${SENTINEL_ENABLED:true}
       require-rules: ${SENTINEL_REQUIRE_RULES:true}
@@ -155,6 +167,7 @@ mall:
         - auth-login
         - auth-register
         - user
+        - audit-query
         - catalog-read
         - product-admin
         - product
@@ -171,6 +184,7 @@ mall:
         - order-command
         - order
       user-limited-routes:
+        - audit-query
         - product-admin
         - seckill-reserve
         - seckill-admin

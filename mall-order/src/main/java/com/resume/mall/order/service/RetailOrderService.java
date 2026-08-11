@@ -3,6 +3,7 @@ package com.resume.mall.order.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.resume.mall.common.PageResult;
+import com.resume.mall.observability.LogValues;
 import com.resume.mall.order.dto.AddCartItemRequest;
 import com.resume.mall.order.dto.CheckoutCartRequest;
 import com.resume.mall.order.dto.CreateOrderRequest;
@@ -19,6 +20,8 @@ import com.resume.mall.order.mapper.ProductSnapshotMapper;
 import com.resume.mall.order.mapper.RetailOrderMapper;
 import com.resume.mall.order.mapper.ShoppingCartItemMapper;
 import org.springframework.dao.DuplicateKeyException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +35,7 @@ import java.util.UUID;
 
 @Service
 public class RetailOrderService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(RetailOrderService.class);
     private static final String CREATED = "CREATED";
     private static final String PAID = "PAID";
     private static final String COMPLETED = "COMPLETED";
@@ -59,6 +63,12 @@ public class RetailOrderService {
     public RetailOrderResponse create(long userId, CreateOrderRequest request, String idempotencyKey) {
         RetailOrder existing = findByIdempotencyKey(idempotencyKey);
         if (existing != null) {
+            LOGGER.atInfo()
+                    .addKeyValue("event", "retail_order_duplicate")
+                    .addKeyValue("idempotencyKey", LogValues.safe(idempotencyKey))
+                    .addKeyValue("orderNo", existing.getOrderNo())
+                    .addKeyValue("userId", userId)
+                    .log("Existing retail order returned for duplicate request");
             return RetailOrderResponse.from(existing);
         }
 
@@ -89,9 +99,25 @@ public class RetailOrderService {
         try {
             orderMapper.insert(order);
         } catch (DuplicateKeyException ignored) {
-            return RetailOrderResponse.from(findByIdempotencyKey(idempotencyKey));
+            RetailOrder duplicate = findByIdempotencyKey(idempotencyKey);
+            LOGGER.atInfo()
+                    .addKeyValue("event", "retail_order_duplicate")
+                    .addKeyValue("idempotencyKey", LogValues.safe(idempotencyKey))
+                    .addKeyValue("orderNo", duplicate == null ? null : duplicate.getOrderNo())
+                    .addKeyValue("userId", userId)
+                    .log("Concurrent duplicate retail order request ignored");
+            return RetailOrderResponse.from(duplicate);
         }
-        return RetailOrderResponse.from(orderMapper.selectById(order.getId()));
+        RetailOrder created = orderMapper.selectById(order.getId());
+        LOGGER.atInfo()
+                .addKeyValue("event", "retail_order_created")
+                .addKeyValue("idempotencyKey", LogValues.safe(idempotencyKey))
+                .addKeyValue("orderNo", created.getOrderNo())
+                .addKeyValue("productId", request.productId())
+                .addKeyValue("quantity", request.quantity())
+                .addKeyValue("userId", userId)
+                .log("Retail order created and stock reserved");
+        return RetailOrderResponse.from(created);
     }
 
     @Transactional
@@ -116,7 +142,15 @@ public class RetailOrderService {
                 .set(RetailOrder::getStatus, PAID)
                 .set(RetailOrder::getPayerUserId, payerUserId)
                 .set(RetailOrder::getPaidAt, LocalDateTime.now()));
-        return RetailOrderResponse.from(findByOrderNo(orderNo));
+        RetailOrder paid = findByOrderNo(orderNo);
+        LOGGER.atInfo()
+                .addKeyValue("event", "retail_order_paid")
+                .addKeyValue("orderNo", LogValues.safe(orderNo))
+                .addKeyValue("userId", order.getUserId())
+                .addKeyValue("payerUserId", payerUserId)
+                .addKeyValue("helpPayment", allowHelpPay)
+                .log("Retail order paid");
+        return RetailOrderResponse.from(paid);
     }
 
     @Transactional
@@ -141,7 +175,15 @@ public class RetailOrderService {
                 .eq(RetailOrder::getStatus, PAID)
                 .set(RetailOrder::getStatus, COMPLETED)
                 .set(RetailOrder::getCompletedAt, LocalDateTime.now()));
-        return RetailOrderResponse.from(findByOrderNo(orderNo));
+        RetailOrder completed = findByOrderNo(orderNo);
+        LOGGER.atInfo()
+                .addKeyValue("event", "retail_order_completed")
+                .addKeyValue("orderNo", LogValues.safe(orderNo))
+                .addKeyValue("productId", order.getProductId())
+                .addKeyValue("quantity", order.getQuantity())
+                .addKeyValue("userId", order.getUserId())
+                .log("Retail order completed and sale confirmed");
+        return RetailOrderResponse.from(completed);
     }
 
     @Transactional
@@ -161,6 +203,13 @@ public class RetailOrderService {
             throw new IllegalStateException("locked stock is inconsistent");
         }
         orderMapper.deleteById(order.getId());
+        LOGGER.atInfo()
+                .addKeyValue("event", "retail_order_deleted")
+                .addKeyValue("orderNo", LogValues.safe(orderNo))
+                .addKeyValue("productId", order.getProductId())
+                .addKeyValue("quantity", order.getQuantity())
+                .addKeyValue("userId", userId)
+                .log("Retail order deleted and stock released");
     }
 
     public RetailOrder findByOrderNo(String orderNo) {
@@ -268,6 +317,12 @@ public class RetailOrderService {
         for (ShoppingCartItem item : items) {
             cartItemMapper.deleteById(item.getId());
         }
+        LOGGER.atInfo()
+                .addKeyValue("event", "shopping_cart_checked_out")
+                .addKeyValue("userId", userId)
+                .addKeyValue("itemCount", items.size())
+                .addKeyValue("orderCount", orders.size())
+                .log("Shopping cart checked out");
         return orders;
     }
 

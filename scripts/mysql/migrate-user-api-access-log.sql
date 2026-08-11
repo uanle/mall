@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS user_api_access_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    trace_id VARCHAR(64) NULL,
+    request_id VARCHAR(128) NULL,
+    user_id BIGINT NULL,
+    user_role VARCHAR(32) NULL,
+    route_id VARCHAR(128) NULL,
+    http_method VARCHAR(16) NOT NULL,
+    path VARCHAR(512) NOT NULL,
+    status INT NOT NULL,
+    success TINYINT NOT NULL,
+    duration_ms BIGINT NOT NULL,
+    client_ip VARCHAR(64) NULL,
+    error_type VARCHAR(64) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    KEY idx_api_access_user_created (user_id, created_at),
+    KEY idx_api_access_path_created (path, created_at),
+    KEY idx_api_access_status_created (status, created_at),
+    KEY idx_api_access_trace (trace_id),
+    KEY idx_api_access_request (request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

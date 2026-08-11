@@ -9,6 +9,8 @@ import com.resume.mall.product.dto.UpdateInventoryRequest;
 import com.resume.mall.product.dto.UpdateProductRequest;
 import com.resume.mall.product.entity.Product;
 import com.resume.mall.product.mapper.ProductMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -25,6 +27,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class ProductService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProductService.class);
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
     private static final Duration NULL_TTL = Duration.ofSeconds(30);
     private static final Duration LOCK_TTL = Duration.ofSeconds(3);
@@ -90,6 +93,12 @@ public class ProductService {
             throw new IllegalStateException("product id already exists");
         }
         redisTemplate.delete(RedisKeys.productCache(productId));
+        LOGGER.atInfo()
+                .addKeyValue("event", "product_created")
+                .addKeyValue("productId", productId)
+                .addKeyValue("priceCent", product.getPriceCent())
+                .addKeyValue("status", status)
+                .log("Product created");
         return getProductAnyStatus(productId);
     }
 
@@ -110,6 +119,12 @@ public class ProductService {
         }
         productMapper.updateById(product);
         redisTemplate.delete(RedisKeys.productCache(productId));
+        LOGGER.atInfo()
+                .addKeyValue("event", "product_updated")
+                .addKeyValue("productId", productId)
+                .addKeyValue("priceCent", product.getPriceCent())
+                .addKeyValue("status", product.getStatus())
+                .log("Product updated");
         return getProductAnyStatus(productId);
     }
 
@@ -122,6 +137,10 @@ public class ProductService {
         product.setStatus(0);
         productMapper.updateById(product);
         redisTemplate.delete(RedisKeys.productCache(productId));
+        LOGGER.atInfo()
+                .addKeyValue("event", "product_disabled")
+                .addKeyValue("productId", productId)
+                .log("Product disabled");
     }
 
     public Map<String, Object> getActivityDetail(long activityId) {
@@ -301,6 +320,11 @@ public class ProductService {
         } catch (DuplicateKeyException ex) {
             throw new IllegalStateException("inventory already exists");
         }
+        LOGGER.atInfo()
+                .addKeyValue("event", "product_inventory_created")
+                .addKeyValue("productId", request.productId())
+                .addKeyValue("availableStock", request.availableStock())
+                .log("Product inventory created");
         return getInventory(request.productId());
     }
 
@@ -321,6 +345,10 @@ public class ProductService {
             spec = spec.param(param);
         }
         spec.update();
+        LOGGER.atInfo()
+                .addKeyValue("event", "product_inventory_updated")
+                .addKeyValue("productId", productId)
+                .log("Product inventory updated");
         return getInventory(productId);
     }
 
@@ -332,6 +360,10 @@ public class ProductService {
         if (updated == 0) {
             throw new NoSuchElementException("inventory not found");
         }
+        LOGGER.atInfo()
+                .addKeyValue("event", "product_inventory_deleted")
+                .addKeyValue("productId", productId)
+                .log("Product inventory deleted");
     }
 
     public Map<String, Object> getInventory(long productId) {

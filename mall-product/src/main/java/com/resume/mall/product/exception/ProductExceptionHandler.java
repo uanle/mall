@@ -2,6 +2,7 @@ package com.resume.mall.product.exception;
 
 import com.resume.mall.common.ApiResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -11,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
+@Order(0)
 @RestControllerAdvice
 public class ProductExceptionHandler {
     @ExceptionHandler({IllegalArgumentException.class, NoSuchElementException.class})

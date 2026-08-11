@@ -1,0 +1,40 @@
+logging:
+  level:
+    root: ${ROOT_LOG_LEVEL:INFO}
+    com.resume.mall: ${MALL_LOG_LEVEL:INFO}
+  structured:
+    format:
+      file: logstash
+    json:
+      add:
+        service: ${spring.application.name}
+        environment: ${spring.profiles.active:local}
+  logback:
+    rollingpolicy:
+      max-file-size: ${LOG_MAX_FILE_SIZE:100MB}
+      max-history: ${LOG_MAX_HISTORY:14}
+      total-size-cap: ${LOG_TOTAL_SIZE_CAP:2GB}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${OTEL_TRACING_ENABLED:false}
+
+mall:
+  observability:
+    access-log:
+      enabled: ${MALL_ACCESS_LOG_ENABLED:true}
+      success-sample-rate: ${MALL_ACCESS_LOG_SUCCESS_SAMPLE_RATE:1.0}
+      slow-threshold: ${MALL_ACCESS_LOG_SLOW_THRESHOLD:1s}
+      excluded-path-prefixes:
+        - /actuator/health
+        - /actuator/prometheus

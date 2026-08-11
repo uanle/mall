@@ -20,3 +20,8 @@ spring:
             file: classpath:sentinel/user-param-flow-rules.json
             data-type: json
             rule-type: param-flow
+
+mall:
+  gateway:
+    management:
+      public-prometheus: true

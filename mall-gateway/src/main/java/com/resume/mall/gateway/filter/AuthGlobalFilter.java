@@ -4,6 +4,7 @@ import com.resume.mall.common.JwtClaims;
 import com.resume.mall.common.JwtUtil;
 import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.UserHeaders;
+import com.resume.mall.gateway.ratelimit.GatewayRateLimitConstants;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -76,26 +77,31 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
                             .header(UserHeaders.USER_LEVEL, finalClaims.level())
                             .header(UserHeaders.TOKEN_ID, finalClaims.jti())
                             .build();
-                    return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                    ServerWebExchange authenticatedExchange = exchange.mutate().request(mutatedRequest).build();
+                    authenticatedExchange.getAttributes().put(
+                            GatewayRateLimitConstants.AUTHENTICATED_USER_ID_ATTRIBUTE, finalClaims.userId());
+                    authenticatedExchange.getAttributes().put(
+                            GatewayRateLimitConstants.AUTHENTICATED_USER_ROLE_ATTRIBUTE, finalClaims.role());
+                    return chain.filter(authenticatedExchange);
                 });
     }
 
     @Override
     public int getOrder() {
-        return -100;
+        return GatewayRateLimitConstants.AUTH_FILTER_ORDER;
     }
 
     private boolean isPublic(String path, HttpMethod method) {
         if (HttpMethod.OPTIONS.equals(method)) {
             return true;
         }
-        if (path.equals("/api/auth/register")
-                || path.equals("/api/auth/login")
-                || path.equals("/api/auth/me")
-                || path.equals("/api/users/me")) {
+        if (path.equals("/api/auth/register") || path.equals("/api/auth/login")) {
             return true;
         }
-        if (path.startsWith("/swagger-ui/") || path.startsWith("/v3/api-docs") || path.startsWith("/actuator/")) {
+        if (path.startsWith("/swagger-ui/") || path.startsWith("/v3/api-docs")) {
+            return true;
+        }
+        if (path.equals("/actuator/health") || path.startsWith("/actuator/health/")) {
             return true;
         }
         if (HttpMethod.GET.equals(method)
@@ -106,6 +112,9 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
     }
 
     private boolean requiresAdmin(String path, HttpMethod method) {
+        if (path.startsWith("/actuator/")) {
+            return true;
+        }
         if (path.startsWith("/internal/")) {
             return true;
         }

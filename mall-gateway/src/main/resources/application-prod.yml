@@ -1,0 +1,37 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  cloud:
+    sentinel:
+      datasource:
+        gateway-flow:
+          nacos:
+            server-addr: ${NACOS_ADDR:localhost:8848}
+            namespace: ${NACOS_NAMESPACE:}
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos}
+            group-id: SENTINEL_GROUP
+            data-id: mall-gateway-gw-flow-rules.json
+            data-type: json
+            rule-type: gw-flow
+        gateway-api:
+          nacos:
+            server-addr: ${NACOS_ADDR:localhost:8848}
+            namespace: ${NACOS_NAMESPACE:}
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos}
+            group-id: SENTINEL_GROUP
+            data-id: mall-gateway-gw-api-groups.json
+            data-type: json
+            rule-type: gw-api-group
+        user-param-flow:
+          nacos:
+            server-addr: ${NACOS_ADDR:localhost:8848}
+            namespace: ${NACOS_NAMESPACE:}
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos}
+            group-id: SENTINEL_GROUP
+            data-id: mall-gateway-user-param-flow-rules.json
+            data-type: json
+            rule-type: param-flow

@@ -1,0 +1,22 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  cloud:
+    sentinel:
+      datasource:
+        gateway-flow:
+          file:
+            file: classpath:sentinel/gateway-flow-rules.json
+            data-type: json
+            rule-type: gw-flow
+        gateway-api:
+          file:
+            file: classpath:sentinel/gateway-api-groups.json
+            data-type: json
+            rule-type: gw-api-group
+        user-param-flow:
+          file:
+            file: classpath:sentinel/user-param-flow-rules.json
+            data-type: json
+            rule-type: param-flow

@@ -1,0 +1,11 @@
+[
+  {
+    "apiName": "api-all",
+    "predicateItems": [
+      {
+        "pattern": "/api/**",
+        "matchStrategy": 1
+      }
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {"resource":"mall-gateway:user:product-admin","grade":1,"paramIdx":0,"count":10,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":1},
+  {"resource":"mall-gateway:user:seckill-reserve","grade":1,"paramIdx":0,"count":1,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":1},
+  {"resource":"mall-gateway:user:seckill-admin","grade":1,"paramIdx":0,"count":10,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":1},
+  {"resource":"mall-gateway:user:seckill-internal","grade":1,"paramIdx":0,"count":10,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":1},
+  {"resource":"mall-gateway:user:order-create","grade":1,"paramIdx":0,"count":3,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":10},
+  {"resource":"mall-gateway:user:cart-checkout","grade":1,"paramIdx":0,"count":2,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":10},
+  {"resource":"mall-gateway:user:payment-command","grade":1,"paramIdx":0,"count":5,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":10},
+  {"resource":"mall-gateway:user:cart-command","grade":1,"paramIdx":0,"count":20,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":10},
+  {"resource":"mall-gateway:user:order-command","grade":1,"paramIdx":0,"count":10,"controlBehavior":0,"maxQueueingTimeMs":0,"burstCount":0,"durationInSec":10}
+]

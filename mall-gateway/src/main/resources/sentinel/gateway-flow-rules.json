@@ -1,0 +1,41 @@
+[
+  {"resource":"api-all","resourceMode":1,"grade":1,"count":800,"intervalSec":1,"controlBehavior":0,"burst":40},
+  {"resource":"api-all","resourceMode":1,"grade":1,"count":100,"intervalSec":1,"controlBehavior":0,"burst":10,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+
+  {"resource":"auth-login","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"auth-login","resourceMode":0,"grade":1,"count":5,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"auth-register","resourceMode":0,"grade":1,"count":10,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"auth-register","resourceMode":0,"grade":1,"count":2,"intervalSec":10,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"user","resourceMode":0,"grade":1,"count":200,"intervalSec":1,"controlBehavior":0,"burst":10},
+  {"resource":"user","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":5,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+
+  {"resource":"catalog-read","resourceMode":0,"grade":1,"count":400,"intervalSec":1,"controlBehavior":0,"burst":20},
+  {"resource":"catalog-read","resourceMode":0,"grade":1,"count":40,"intervalSec":1,"controlBehavior":0,"burst":5,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"product-admin","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"product-admin","resourceMode":0,"grade":1,"count":10,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"product","resourceMode":0,"grade":1,"count":200,"intervalSec":1,"controlBehavior":0,"burst":10},
+
+  {"resource":"seckill-reserve","resourceMode":0,"grade":1,"count":200,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"seckill-reserve","resourceMode":0,"grade":1,"count":20,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"seckill-query","resourceMode":0,"grade":1,"count":500,"intervalSec":1,"controlBehavior":0,"burst":20},
+  {"resource":"seckill-query","resourceMode":0,"grade":1,"count":50,"intervalSec":1,"controlBehavior":0,"burst":5,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"seckill-admin","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"seckill-admin","resourceMode":0,"grade":1,"count":10,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"seckill-internal","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"seckill-internal","resourceMode":0,"grade":1,"count":10,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"seckill","resourceMode":0,"grade":1,"count":200,"intervalSec":1,"controlBehavior":0,"burst":10},
+
+  {"resource":"order-create","resourceMode":0,"grade":1,"count":80,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"order-create","resourceMode":0,"grade":1,"count":20,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"cart-checkout","resourceMode":0,"grade":1,"count":50,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"cart-checkout","resourceMode":0,"grade":1,"count":10,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"payment-command","resourceMode":0,"grade":1,"count":100,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"payment-command","resourceMode":0,"grade":1,"count":20,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"order-query","resourceMode":0,"grade":1,"count":300,"intervalSec":1,"controlBehavior":0,"burst":20},
+  {"resource":"order-query","resourceMode":0,"grade":1,"count":50,"intervalSec":1,"controlBehavior":0,"burst":5,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"cart-command","resourceMode":0,"grade":1,"count":150,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"cart-command","resourceMode":0,"grade":1,"count":30,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"order-command","resourceMode":0,"grade":1,"count":100,"intervalSec":1,"controlBehavior":0,"burst":0},
+  {"resource":"order-command","resourceMode":0,"grade":1,"count":20,"intervalSec":1,"controlBehavior":0,"burst":0,"paramItem":{"parseStrategy":2,"fieldName":"X-Real-IP"}},
+  {"resource":"order","resourceMode":0,"grade":1,"count":200,"intervalSec":1,"controlBehavior":0,"burst":10}
+]

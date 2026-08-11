@@ -33,3 +33,24 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: mall
       RABBITMQ_DEFAULT_PASS: mall
+
+  nacos:
+    image: nacos/nacos-server:v3.0.3
+    container_name: mall-nacos
+    profiles: ["docker-governance"]
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+      - "8850:8080"
+
+  sentinel-dashboard:
+    build:
+      context: ./docker/sentinel-dashboard
+    container_name: mall-sentinel-dashboard
+    profiles: ["docker-governance"]
+    ports:
+      - "8858:8858"

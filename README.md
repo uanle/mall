@@ -10,7 +10,7 @@ Core path:
 
 ## Modules
 
-- `mall-gateway`: route entry, static service routes.
+- `mall-gateway`: route entry, JWT session validation, Sentinel route/IP/user rate limiting.
 - `mall-user`: registration, login, JWT issuing, user role and level APIs.
 - `mall-product`: product and seckill activity query APIs.
 - `mall-seckill`: Redis Lua atomic stock reservation and MQ publishing.
@@ -78,6 +78,17 @@ If you only want Docker RabbitMQ:
 ```powershell
 docker compose --profile docker-mq up -d
 ```
+
+Optional Sentinel Dashboard and Nacos rule center:
+
+```powershell
+docker compose --profile docker-governance up -d --build
+```
+
+The default `local` profile loads checked-in Sentinel rules and does not require
+Nacos. Sentinel Dashboard is available at `http://localhost:8858`; Nacos 3 uses
+`http://localhost:8848` for its service API and `http://localhost:8850` for its
+console.
 
 4. Start services:
 
@@ -239,3 +250,23 @@ Record each pressure-test round in `docs/perf-worklog.md`:
 - thread pool metrics
 - optimization decision
 - retest result
+
+## Gateway Rate Limiting
+
+Gateway limits are applied before downstream forwarding:
+
+- route-wide and caller-IP limits use Sentinel Gateway rules;
+- authenticated write/seckill routes also use trusted user-id parameter rules;
+- blocked requests return HTTP `429`, `Retry-After: 1`, and a stable JSON body;
+- local rules are stored under `mall-gateway/src/main/resources/sentinel`;
+- the `prod` profile reads persistent dynamic rules from Nacos.
+
+Publish the baseline files to a local Nacos instance with:
+
+```powershell
+.\scripts\sentinel\publish-rules.ps1
+```
+
+See [Gateway Sentinel rate limiting](docs/sentinel-rate-limiting.md) for rule
+ownership, production startup, readiness behavior, trusted proxies, metrics,
+and threshold tuning.

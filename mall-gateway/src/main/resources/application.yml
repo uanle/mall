@@ -4,36 +4,119 @@ server:
 spring:
   application:
     name: mall-gateway
+  profiles:
+    default: local
   data:
     redis:
       host: localhost
       port: 6379
       password: root
   cloud:
+    sentinel:
+      enabled: ${SENTINEL_ENABLED:true}
+      eager: true
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:localhost:8858}
+        port: ${SENTINEL_TRANSPORT_PORT:8719}
+      filter:
+        enabled: false
+      scg:
+        order: -150
+      log:
+        dir: ${SENTINEL_LOG_DIR:logs/sentinel}
+        switch-pid: true
     gateway:
       server:
         webflux:
           routes:
+            - id: auth-login
+              uri: http://localhost:8084
+              predicates:
+                - Path=/api/auth/login
+                - Method=POST
+            - id: auth-register
+              uri: http://localhost:8084
+              predicates:
+                - Path=/api/auth/register
+                - Method=POST
             - id: user
               uri: http://localhost:8084
               predicates:
                 - Path=/api/auth/**,/api/users/**
+
+            - id: catalog-read
+              uri: http://localhost:8081
+              predicates:
+                - Path=/api/products/**,/api/activities/**
+                - Method=GET
+            - id: product-admin
+              uri: http://localhost:8081
+              predicates:
+                - Path=/api/products/**,/api/activities/**,/api/inventories/**
+                - Method=GET,POST,PUT,DELETE
             - id: product
               uri: http://localhost:8081
               predicates:
                 - Path=/api/products/**,/api/activities/**,/api/inventories/**
-            - id: seckill
+
+            - id: seckill-reserve
               uri: http://localhost:8082
               predicates:
-                - Path=/api/seckill/**
+                - Path=/api/seckill/*/reserve
+                - Method=POST
+            - id: seckill-query
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/seckill/activities/**
+                - Method=GET
+            - id: seckill-admin
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/seckill/activities/**,/api/seckill/stock-deduct-logs/**
             - id: seckill-internal
               uri: http://localhost:8082
               predicates:
                 - Path=/internal/seckill/**
+            - id: seckill
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/seckill/**
+
+            - id: order-create
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/orders
+                - Method=POST
+            - id: cart-checkout
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/orders/cart/checkout
+                - Method=POST
+            - id: payment-command
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/orders/*/payments,/api/orders/*/help-payments,/api/orders/*/completion,/api/orders/seckill-orders/*/payments,/api/orders/seckill-orders/*/help-payments,/api/orders/seckill-orders/*/completion
+                - Method=POST
+            - id: order-query
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/orders/**
+                - Method=GET
+            - id: cart-command
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/orders/cart/**
+                - Method=POST,PUT,DELETE
+            - id: order-command
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/orders/**
+                - Method=POST,PUT,DELETE
             - id: order
               uri: http://localhost:8083
               predicates:
                 - Path=/api/orders/**
+
             - id: product-openapi
               uri: http://localhost:8081
               predicates:
@@ -62,6 +145,41 @@ spring:
 mall:
   jwt:
     secret: mall-local-dev-secret-change-me
+  gateway:
+    rate-limit:
+      enabled: ${SENTINEL_ENABLED:true}
+      require-rules: ${SENTINEL_REQUIRE_RULES:true}
+      trusted-proxies: ${MALL_GATEWAY_TRUSTED_PROXIES:}
+      required-gateway-resources:
+        - api-all
+        - auth-login
+        - auth-register
+        - user
+        - catalog-read
+        - product-admin
+        - product
+        - seckill-reserve
+        - seckill-query
+        - seckill-admin
+        - seckill-internal
+        - seckill
+        - order-create
+        - cart-checkout
+        - payment-command
+        - order-query
+        - cart-command
+        - order-command
+        - order
+      user-limited-routes:
+        - product-admin
+        - seckill-reserve
+        - seckill-admin
+        - seckill-internal
+        - order-create
+        - cart-checkout
+        - payment-command
+        - cart-command
+        - order-command
 
 springdoc:
   swagger-ui:
@@ -76,7 +194,16 @@ springdoc:
         url: /v3/api-docs/user
 
 management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,rateLimitRules,redis
   endpoints:
     web:
       exposure:
-        include: health,metrics,prometheus
+        include: health,info,metrics,prometheus,sentinel

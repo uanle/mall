@@ -3,16 +3,21 @@ package com.resume.mall.order.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.resume.mall.common.PageResult;
+import com.resume.mall.order.dto.AddCartItemRequest;
+import com.resume.mall.order.dto.CheckoutCartRequest;
 import com.resume.mall.order.dto.CreateOrderRequest;
 import com.resume.mall.order.dto.RetailOrderResponse;
 import com.resume.mall.order.dto.StockCheckResponse;
+import com.resume.mall.order.dto.UpdateCartItemRequest;
 import com.resume.mall.order.entity.ProductInventory;
 import com.resume.mall.order.entity.ProductSnapshot;
 import com.resume.mall.order.entity.RetailOrder;
+import com.resume.mall.order.entity.ShoppingCartItem;
 import com.resume.mall.order.exception.OrderBizException;
 import com.resume.mall.order.mapper.ProductInventoryMapper;
 import com.resume.mall.order.mapper.ProductSnapshotMapper;
 import com.resume.mall.order.mapper.RetailOrderMapper;
+import com.resume.mall.order.mapper.ShoppingCartItemMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -34,16 +39,19 @@ public class RetailOrderService {
     private final ProductSnapshotMapper productMapper;
     private final ProductInventoryMapper inventoryMapper;
     private final RetailOrderMapper orderMapper;
+    private final ShoppingCartItemMapper cartItemMapper;
     private final JdbcClient jdbcClient;
 
     public RetailOrderService(
             ProductSnapshotMapper productMapper,
             ProductInventoryMapper inventoryMapper,
             RetailOrderMapper orderMapper,
+            ShoppingCartItemMapper cartItemMapper,
             JdbcClient jdbcClient) {
         this.productMapper = productMapper;
         this.inventoryMapper = inventoryMapper;
         this.orderMapper = orderMapper;
+        this.cartItemMapper = cartItemMapper;
         this.jdbcClient = jdbcClient;
     }
 
@@ -136,6 +144,25 @@ public class RetailOrderService {
         return RetailOrderResponse.from(findByOrderNo(orderNo));
     }
 
+    @Transactional
+    public void deleteOrder(String orderNo, long userId) {
+        RetailOrder order = findByOrderNo(orderNo);
+        if (order == null) {
+            throw new NoSuchElementException("order not found");
+        }
+        if (!order.getUserId().equals(userId)) {
+            throw new SecurityException("only the order owner can delete this order");
+        }
+        if (!CREATED.equals(order.getStatus())) {
+            throw new IllegalStateException("only CREATED orders can be deleted");
+        }
+        int released = inventoryMapper.releaseStock(order.getProductId(), order.getQuantity());
+        if (released != 1) {
+            throw new IllegalStateException("locked stock is inconsistent");
+        }
+        orderMapper.deleteById(order.getId());
+    }
+
     public RetailOrder findByOrderNo(String orderNo) {
         return orderMapper.selectOne(new LambdaQueryWrapper<RetailOrder>()
                 .eq(RetailOrder::getOrderNo, orderNo));
@@ -151,6 +178,97 @@ public class RetailOrderService {
                 .eq(ProductSnapshot::getId, productId)
                 .eq(ProductSnapshot::getStatus, 1));
         return checkStock(product, productId, quantity);
+    }
+
+    @Transactional
+    public Map<String, Object> addCartItem(long userId, AddCartItemRequest request) {
+        checkCartProduct(request.productId(), request.quantity());
+        ShoppingCartItem existing = cartItemMapper.selectOne(new LambdaQueryWrapper<ShoppingCartItem>()
+                .eq(ShoppingCartItem::getUserId, userId)
+                .eq(ShoppingCartItem::getProductId, request.productId()));
+        if (existing != null) {
+            existing.setQuantity(existing.getQuantity() + request.quantity());
+            if (request.selected() != null) {
+                existing.setSelected(toSelected(request.selected()));
+            }
+            cartItemMapper.updateById(existing);
+            return getCartItem(userId, existing.getId());
+        }
+
+        ShoppingCartItem item = new ShoppingCartItem();
+        item.setUserId(userId);
+        item.setProductId(request.productId());
+        item.setQuantity(request.quantity());
+        item.setSelected(toSelected(request.selected() == null || request.selected()));
+        cartItemMapper.insert(item);
+        return getCartItem(userId, item.getId());
+    }
+
+    public List<Map<String, Object>> listCartItems(long userId, Boolean selected) {
+        StringBuilder where = new StringBuilder(" where c.user_id = ?");
+        List<Object> params = new ArrayList<>();
+        params.add(userId);
+        if (selected != null) {
+            where.append(" and c.selected = ?");
+            params.add(toSelected(selected));
+        }
+        return queryRows("""
+                        select c.id, c.user_id, c.product_id, p.name as product_name, p.price_cent,
+                               c.quantity, c.selected, c.created_at, c.updated_at
+                        from shopping_cart_item c
+                        join product p on p.id = c.product_id
+                        """ + where + " order by c.updated_at desc, c.id desc",
+                params);
+    }
+
+    @Transactional
+    public Map<String, Object> updateCartItem(long userId, long itemId, UpdateCartItemRequest request) {
+        ShoppingCartItem item = requireCartItem(userId, itemId);
+        if (request.quantity() != null) {
+            checkCartProduct(item.getProductId(), request.quantity());
+            item.setQuantity(request.quantity());
+        }
+        if (request.selected() != null) {
+            item.setSelected(toSelected(request.selected()));
+        }
+        cartItemMapper.updateById(item);
+        return getCartItem(userId, itemId);
+    }
+
+    @Transactional
+    public void deleteCartItem(long userId, long itemId) {
+        ShoppingCartItem item = requireCartItem(userId, itemId);
+        cartItemMapper.deleteById(item.getId());
+    }
+
+    @Transactional
+    public void clearCart(long userId, Boolean selected) {
+        LambdaQueryWrapper<ShoppingCartItem> wrapper = new LambdaQueryWrapper<ShoppingCartItem>()
+                .eq(ShoppingCartItem::getUserId, userId);
+        if (selected != null) {
+            wrapper.eq(ShoppingCartItem::getSelected, toSelected(selected));
+        }
+        cartItemMapper.delete(wrapper);
+    }
+
+    @Transactional
+    public List<RetailOrderResponse> checkoutCart(long userId, CheckoutCartRequest request) {
+        List<ShoppingCartItem> items = findCheckoutItems(userId, request == null ? null : request.itemIds());
+        if (items.isEmpty()) {
+            throw new NoSuchElementException("cart item not found");
+        }
+        List<RetailOrderResponse> orders = new ArrayList<>();
+        for (ShoppingCartItem item : items) {
+            RetailOrderResponse order = create(
+                    userId,
+                    new CreateOrderRequest(item.getProductId(), item.getQuantity()),
+                    "CART-" + item.getId() + "-" + UUID.randomUUID());
+            orders.add(order);
+        }
+        for (ShoppingCartItem item : items) {
+            cartItemMapper.deleteById(item.getId());
+        }
+        return orders;
     }
 
     private StockCheckResponse checkStock(ProductSnapshot product, long productId, int quantity) {
@@ -187,6 +305,53 @@ public class RetailOrderService {
                 inventory.getSoldStock(),
                 true,
                 "stock available");
+    }
+
+    private void checkCartProduct(long productId, int quantity) {
+        StockCheckResponse stockCheck = checkStock(productId, quantity);
+        if (!stockCheck.productAvailable()) {
+            throw new IllegalArgumentException(stockCheck.reason());
+        }
+    }
+
+    private Map<String, Object> getCartItem(long userId, long itemId) {
+        List<Map<String, Object>> rows = queryRows("""
+                        select c.id, c.user_id, c.product_id, p.name as product_name, p.price_cent,
+                               c.quantity, c.selected, c.created_at, c.updated_at
+                        from shopping_cart_item c
+                        join product p on p.id = c.product_id
+                        where c.user_id = ? and c.id = ?
+                        """,
+                List.of(userId, itemId));
+        if (rows.isEmpty()) {
+            throw new NoSuchElementException("cart item not found");
+        }
+        return rows.get(0);
+    }
+
+    private ShoppingCartItem requireCartItem(long userId, long itemId) {
+        ShoppingCartItem item = cartItemMapper.selectOne(new LambdaQueryWrapper<ShoppingCartItem>()
+                .eq(ShoppingCartItem::getUserId, userId)
+                .eq(ShoppingCartItem::getId, itemId));
+        if (item == null) {
+            throw new NoSuchElementException("cart item not found");
+        }
+        return item;
+    }
+
+    private List<ShoppingCartItem> findCheckoutItems(long userId, List<Long> itemIds) {
+        LambdaQueryWrapper<ShoppingCartItem> wrapper = new LambdaQueryWrapper<ShoppingCartItem>()
+                .eq(ShoppingCartItem::getUserId, userId);
+        if (itemIds == null || itemIds.isEmpty()) {
+            wrapper.eq(ShoppingCartItem::getSelected, 1);
+        } else {
+            wrapper.in(ShoppingCartItem::getId, itemIds);
+        }
+        return cartItemMapper.selectList(wrapper.orderByAsc(ShoppingCartItem::getId));
+    }
+
+    private int toSelected(boolean selected) {
+        return selected ? 1 : 0;
     }
 
     public PageResult<Map<String, Object>> pageRetailOrders(

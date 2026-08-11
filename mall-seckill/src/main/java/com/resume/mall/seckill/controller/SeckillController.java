@@ -4,6 +4,7 @@ import com.resume.mall.common.ApiResponse;
 import com.resume.mall.common.PageResult;
 import com.resume.mall.common.ReserveResult;
 import com.resume.mall.seckill.dto.CreateSeckillActivityRequest;
+import com.resume.mall.seckill.dto.UpdateSeckillActivityRequest;
 import com.resume.mall.seckill.service.SeckillService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -11,9 +12,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -50,6 +53,13 @@ public class SeckillController {
         return ApiResponse.ok(seckillService.createActivity(request));
     }
 
+    @Operation(summary = "新增秒杀活动")
+    @PostMapping("/api/seckill/activities")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<Map<String, Object>> createApiActivity(@Valid @RequestBody CreateSeckillActivityRequest request) {
+        return ApiResponse.ok(seckillService.createActivity(request));
+    }
+
 //    @Operation(summary = "初始化秒杀 Redis 库存", description = "内部测试接口，用于把指定活动库存写入 Redis。quantity 必须大于等于 0。")
 //    @PostMapping("/internal/seckill/{activityId}/stock")
 //    @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -78,6 +88,27 @@ public class SeckillController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTo) {
         return ApiResponse.ok(seckillService.pageActivities(
                 pageNum, pageSize, productId, productName, status, startFrom, startTo));
+    }
+
+    @Operation(summary = "查询秒杀活动详情")
+    @GetMapping("/api/seckill/activities/{activityId}")
+    public ApiResponse<Map<String, Object>> activity(@PathVariable("activityId") long activityId) {
+        return ApiResponse.ok(seckillService.getActivity(activityId));
+    }
+
+    @Operation(summary = "修改秒杀活动")
+    @PutMapping("/api/seckill/activities/{activityId}")
+    public ApiResponse<Map<String, Object>> updateActivity(
+            @PathVariable("activityId") long activityId,
+            @Valid @RequestBody UpdateSeckillActivityRequest request) {
+        return ApiResponse.ok(seckillService.updateActivity(activityId, request));
+    }
+
+    @Operation(summary = "删除秒杀活动", description = "软删除：将活动 status 更新为 0，并清理活动 Redis 库存。")
+    @DeleteMapping("/api/seckill/activities/{activityId}")
+    public ApiResponse<Void> deleteActivity(@PathVariable("activityId") long activityId) {
+        seckillService.deleteActivity(activityId);
+        return ApiResponse.ok(null);
     }
 
     @Operation(summary = "分页查询秒杀库存扣减日志", description = "支持按用户 ID、活动 ID、处理状态、创建时间区间查询，用于排查重复消费、消息丢失和最终一致性问题。")

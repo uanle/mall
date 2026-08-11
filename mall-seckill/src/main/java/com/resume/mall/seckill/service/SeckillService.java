@@ -6,6 +6,7 @@ import com.resume.mall.common.RabbitNames;
 import com.resume.mall.common.RedisKeys;
 import com.resume.mall.common.ReserveResult;
 import com.resume.mall.seckill.dto.CreateSeckillActivityRequest;
+import com.resume.mall.seckill.dto.UpdateSeckillActivityRequest;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.DuplicateKeyException;
@@ -154,6 +155,53 @@ public class SeckillService {
             initStock(activityId, request.totalStock());
         }
         return getActivity(activityId);
+    }
+
+    public Map<String, Object> updateActivity(long activityId, UpdateSeckillActivityRequest request) {
+        ActivityDetail current = findActivityDetail(activityId);
+        long productId = request.productId() == null ? current.productId() : request.productId();
+        LocalDateTime startTime = request.startTime() == null ? current.startTime() : request.startTime();
+        LocalDateTime endTime = request.endTime() == null ? current.endTime() : request.endTime();
+        int totalStock = request.totalStock() == null ? current.totalStock() : request.totalStock();
+        int status = request.status() == null ? current.status() : request.status();
+
+        if (!startTime.isBefore(endTime)) {
+            throw new IllegalArgumentException("startTime must be before endTime");
+        }
+        if (totalStock < 1) {
+            throw new IllegalArgumentException("totalStock must be greater than 0");
+        }
+        if (status != 0 && status != 1) {
+            throw new IllegalArgumentException("status must be 0 or 1");
+        }
+        ensureActiveProductExists(productId);
+
+        jdbcClient.sql("""
+                        update seckill_activity
+                        set product_id = ?, start_time = ?, end_time = ?, total_stock = ?, status = ?
+                        where id = ?
+                        """)
+                .param(productId)
+                .param(startTime)
+                .param(endTime)
+                .param(totalStock)
+                .param(status)
+                .param(activityId)
+                .update();
+        if (status == 1 && LocalDateTime.now().isBefore(endTime)) {
+            initStock(activityId, totalStock);
+        } else {
+            redisTemplate.delete(RedisKeys.seckillStock(activityId));
+        }
+        return getActivity(activityId);
+    }
+
+    public void deleteActivity(long activityId) {
+        findActivityDetail(activityId);
+        jdbcClient.sql("update seckill_activity set status = 0 where id = ?")
+                .param(activityId)
+                .update();
+        redisTemplate.delete(RedisKeys.seckillStock(activityId));
     }
 
     public void initStock(long activityId, int quantity) {
@@ -379,11 +427,36 @@ public class SeckillService {
         return count > 0;
     }
 
+    private ActivityDetail findActivityDetail(long activityId) {
+        return jdbcClient.sql("""
+                        select product_id, total_stock, start_time, end_time, status
+                        from seckill_activity
+                        where id = ?
+                        """)
+                .param(activityId)
+                .query((rs, rowNum) -> new ActivityDetail(
+                        rs.getLong("product_id"),
+                        rs.getInt("total_stock"),
+                        rs.getTimestamp("start_time").toLocalDateTime(),
+                        rs.getTimestamp("end_time").toLocalDateTime(),
+                        rs.getInt("status")))
+                .optional()
+                .orElseThrow(() -> new NoSuchElementException("activity not found"));
+    }
+
     private record ActivitySnapshot(
             long productId,
             long amountCent,
             int totalStock,
             LocalDateTime startTime,
             LocalDateTime endTime) {
+    }
+
+    private record ActivityDetail(
+            long productId,
+            int totalStock,
+            LocalDateTime startTime,
+            LocalDateTime endTime,
+            int status) {
     }
 }

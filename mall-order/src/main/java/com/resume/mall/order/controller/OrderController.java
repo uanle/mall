@@ -3,9 +3,12 @@ package com.resume.mall.order.controller;
 import com.resume.mall.common.ApiResponse;
 import com.resume.mall.common.PageResult;
 import com.resume.mall.common.UserHeaders;
+import com.resume.mall.order.dto.AddCartItemRequest;
+import com.resume.mall.order.dto.CheckoutCartRequest;
 import com.resume.mall.order.dto.CreateOrderRequest;
 import com.resume.mall.order.dto.RetailOrderResponse;
 import com.resume.mall.order.dto.StockCheckResponse;
+import com.resume.mall.order.dto.UpdateCartItemRequest;
 import com.resume.mall.order.entity.RetailOrder;
 import com.resume.mall.order.service.RetailOrderService;
 import com.resume.mall.order.service.TradeOrderService;
@@ -14,16 +17,21 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -105,6 +113,67 @@ public class OrderController {
             return ApiResponse.fail(404, "retail order not found");
         }
         return ApiResponse.ok(RetailOrderResponse.from(retailOrder));
+    }
+
+    @Operation(summary = "删除普通订单", description = "仅允许订单所属用户删除 CREATED 状态订单；删除时释放已锁定库存。")
+    @DeleteMapping("/{orderNo}")
+    public ApiResponse<Void> deleteOrder(
+            @PathVariable("orderNo") String orderNo,
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId) {
+        retailOrderService.deleteOrder(orderNo, userId);
+        return ApiResponse.ok(null);
+    }
+
+    @Operation(summary = "添加商品到购物车")
+    @PostMapping("/cart/items")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<Map<String, Object>> addCartItem(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @Valid @RequestBody AddCartItemRequest request) {
+        return ApiResponse.ok(retailOrderService.addCartItem(userId, request));
+    }
+
+    @Operation(summary = "查询购物车商品")
+    @GetMapping("/cart/items")
+    public ApiResponse<List<Map<String, Object>>> cartItems(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @RequestParam(value = "selected", required = false) Boolean selected) {
+        return ApiResponse.ok(retailOrderService.listCartItems(userId, selected));
+    }
+
+    @Operation(summary = "操作购物车商品", description = "可修改商品数量或选中状态。")
+    @PutMapping("/cart/items/{itemId}")
+    public ApiResponse<Map<String, Object>> updateCartItem(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @PathVariable("itemId") long itemId,
+            @Valid @RequestBody UpdateCartItemRequest request) {
+        return ApiResponse.ok(retailOrderService.updateCartItem(userId, itemId, request));
+    }
+
+    @Operation(summary = "删除购物车商品")
+    @DeleteMapping("/cart/items/{itemId}")
+    public ApiResponse<Void> deleteCartItem(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @PathVariable("itemId") long itemId) {
+        retailOrderService.deleteCartItem(userId, itemId);
+        return ApiResponse.ok(null);
+    }
+
+    @Operation(summary = "清空购物车", description = "selected 为空时清空全部；传 true/false 可只清理对应选中状态的商品。")
+    @DeleteMapping("/cart/items")
+    public ApiResponse<Void> clearCart(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @RequestParam(value = "selected", required = false) Boolean selected) {
+        retailOrderService.clearCart(userId, selected);
+        return ApiResponse.ok(null);
+    }
+
+    @Operation(summary = "购买购物车商品", description = "itemIds 为空时购买已选中商品；否则购买指定购物车商品。成功后删除对应购物车项。")
+    @PostMapping("/cart/checkout")
+    public ApiResponse<List<RetailOrderResponse>> checkoutCart(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @RequestBody(required = false) CheckoutCartRequest request) {
+        return ApiResponse.ok(retailOrderService.checkoutCart(userId, request));
     }
 
     @Operation(summary = "按秒杀请求 ID 查询订单详情", description = "查询 trade_order 表。这个接口用于秒杀链路，参数是下单请求的 requestId。")

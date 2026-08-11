@@ -25,4 +25,13 @@ public interface ProductInventoryMapper extends BaseMapper<ProductInventory> {
               and locked_stock >= #{quantity}
             """)
     int confirmSale(@Param("productId") long productId, @Param("quantity") int quantity);
+
+    @Update("""
+            update product_inventory
+            set available_stock = available_stock + #{quantity},
+                locked_stock = locked_stock - #{quantity}
+            where product_id = #{productId}
+              and locked_stock >= #{quantity}
+            """)
+    int releaseStock(@Param("productId") long productId, @Param("quantity") int quantity);
 }

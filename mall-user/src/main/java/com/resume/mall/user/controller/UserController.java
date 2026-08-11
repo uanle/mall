@@ -3,6 +3,8 @@ package com.resume.mall.user.controller;
 import com.resume.mall.common.ApiResponse;
 import com.resume.mall.common.PageResult;
 import com.resume.mall.common.UserHeaders;
+import com.resume.mall.user.dto.ChangePasswordRequest;
+import com.resume.mall.user.dto.ChangeUsernameRequest;
 import com.resume.mall.user.dto.LoginRequest;
 import com.resume.mall.user.dto.LoginResponse;
 import com.resume.mall.user.dto.RegisterRequest;
@@ -14,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -99,6 +102,30 @@ public class UserController {
             @PathVariable("userId") long userId,
             @Valid @RequestBody UpdateUserRequest request) {
         return ApiResponse.ok(userService.updateUser(userId, request));
+    }
+
+    @Operation(summary = "修改当前用户用户名", description = "修改成功后会清理当前用户登录会话，需要重新登录。")
+    @PutMapping("/users/me/username")
+    public ApiResponse<UserResponse> changeUsername(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @Valid @RequestBody ChangeUsernameRequest request) {
+        return ApiResponse.ok(userService.changeUsername(userId, request));
+    }
+
+    @Operation(summary = "修改当前用户密码", description = "需要校验旧密码；修改成功后会清理当前用户登录会话，需要重新登录。")
+    @PutMapping("/users/me/password")
+    public ApiResponse<Void> changePassword(
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        userService.changePassword(userId, request);
+        return ApiResponse.ok(null);
+    }
+
+    @Operation(summary = "删除用户", description = "软删除：将用户 status 更新为 0，并清理该用户的登录会话。")
+    @DeleteMapping("/users/{userId}")
+    public ApiResponse<Void> deleteUser(@PathVariable("userId") long userId) {
+        userService.deleteUser(userId);
+        return ApiResponse.ok(null);
     }
 
     private String resolveTokenHeader(String authorization, String accessToken) {

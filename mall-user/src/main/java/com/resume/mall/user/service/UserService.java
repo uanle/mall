@@ -5,6 +5,8 @@ import com.resume.mall.common.JwtClaims;
 import com.resume.mall.common.JwtUtil;
 import com.resume.mall.common.PageResult;
 import com.resume.mall.common.RedisKeys;
+import com.resume.mall.user.dto.ChangePasswordRequest;
+import com.resume.mall.user.dto.ChangeUsernameRequest;
 import com.resume.mall.user.dto.LoginRequest;
 import com.resume.mall.user.dto.LoginResponse;
 import com.resume.mall.user.dto.RegisterRequest;
@@ -187,6 +189,60 @@ public class UserService {
         MallUser updated = userMapper.selectById(userId);
         cacheUser(updated);
         return UserResponse.from(updated);
+    }
+
+    @Transactional
+    public UserResponse changeUsername(long userId, ChangeUsernameRequest request) {
+        MallUser user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new NoSuchElementException("user not found");
+        }
+        String oldUsername = user.getUsername();
+        String newUsername = request.username().trim();
+        if (oldUsername.equals(newUsername)) {
+            return UserResponse.from(user);
+        }
+        user.setUsername(newUsername);
+        try {
+            userMapper.updateById(user);
+        } catch (DuplicateKeyException ex) {
+            throw new IllegalArgumentException("username already exists");
+        }
+        authUserCacheRedisTemplate.delete(RedisKeys.userAuth(oldUsername));
+        evictUserCache(user);
+        evictUserTokens(userId);
+        MallUser updated = userMapper.selectById(userId);
+        cacheUser(updated);
+        return UserResponse.from(updated);
+    }
+
+    @Transactional
+    public void changePassword(long userId, ChangePasswordRequest request) {
+        MallUser user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new NoSuchElementException("user not found");
+        }
+        if (!user.getPasswordHash().equals(hashPassword(request.oldPassword()))) {
+            throw new IllegalArgumentException("old password is incorrect");
+        }
+        user.setPasswordHash(hashPassword(request.newPassword()));
+        userMapper.updateById(user);
+        evictUserCache(user);
+        evictUserTokens(userId);
+    }
+
+    @Transactional
+    public void deleteUser(long userId) {
+        MallUser user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new NoSuchElementException("user not found");
+        }
+        if (user.getStatus() == null || user.getStatus() != 0) {
+            user.setStatus(0);
+            userMapper.updateById(user);
+        }
+        evictUserCache(user);
+        evictUserTokens(userId);
     }
 
     public PageResult<Map<String, Object>> pageUsers(int pageNum, int pageSize, String username, String role, String level, Integer status) {

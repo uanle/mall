@@ -3,11 +3,17 @@ package com.resume.mall.product.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.resume.mall.common.PageResult;
 import com.resume.mall.common.RedisKeys;
+import com.resume.mall.product.dto.CreateInventoryRequest;
+import com.resume.mall.product.dto.CreateProductRequest;
+import com.resume.mall.product.dto.UpdateInventoryRequest;
+import com.resume.mall.product.dto.UpdateProductRequest;
 import com.resume.mall.product.entity.Product;
 import com.resume.mall.product.mapper.ProductMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -67,6 +73,55 @@ public class ProductService {
         } finally {
             redisTemplate.delete(RedisKeys.productMutex(productId));
         }
+    }
+
+    @Transactional
+    public Map<String, Object> createProduct(CreateProductRequest request) {
+        int status = normalizeStatus(request.status(), 1);
+        long productId = request.id() == null ? generateProductId() : request.id();
+        Product product = new Product();
+        product.setId(productId);
+        product.setName(requireName(request.name()));
+        product.setPriceCent(requirePositivePrice(request.priceCent()));
+        product.setStatus(status);
+        try {
+            productMapper.insert(product);
+        } catch (DuplicateKeyException ex) {
+            throw new IllegalStateException("product id already exists");
+        }
+        redisTemplate.delete(RedisKeys.productCache(productId));
+        return getProductAnyStatus(productId);
+    }
+
+    @Transactional
+    public Map<String, Object> updateProduct(long productId, UpdateProductRequest request) {
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new NoSuchElementException("product not found");
+        }
+        if (request.name() != null) {
+            product.setName(requireName(request.name()));
+        }
+        if (request.priceCent() != null) {
+            product.setPriceCent(requirePositivePrice(request.priceCent()));
+        }
+        if (request.status() != null) {
+            product.setStatus(normalizeStatus(request.status(), product.getStatus()));
+        }
+        productMapper.updateById(product);
+        redisTemplate.delete(RedisKeys.productCache(productId));
+        return getProductAnyStatus(productId);
+    }
+
+    @Transactional
+    public void deleteProduct(long productId) {
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new NoSuchElementException("product not found");
+        }
+        product.setStatus(0);
+        productMapper.updateById(product);
+        redisTemplate.delete(RedisKeys.productCache(productId));
     }
 
     public Map<String, Object> getActivityDetail(long activityId) {
@@ -230,6 +285,71 @@ public class ProductService {
         return PageResult.of(normalizedPageNum, normalizedPageSize, total, records);
     }
 
+    @Transactional
+    public Map<String, Object> createInventory(CreateInventoryRequest request) {
+        ensureProductExists(request.productId());
+        try {
+            jdbcClient.sql("""
+                            insert into product_inventory(product_id, available_stock, locked_stock, sold_stock)
+                            values (?, ?, ?, ?)
+                            """)
+                    .param(request.productId())
+                    .param(request.availableStock())
+                    .param(request.lockedStock() == null ? 0 : request.lockedStock())
+                    .param(request.soldStock() == null ? 0 : request.soldStock())
+                    .update();
+        } catch (DuplicateKeyException ex) {
+            throw new IllegalStateException("inventory already exists");
+        }
+        return getInventory(request.productId());
+    }
+
+    @Transactional
+    public Map<String, Object> updateInventory(long productId, UpdateInventoryRequest request) {
+        getInventory(productId);
+        StringBuilder set = new StringBuilder();
+        List<Object> params = new ArrayList<>();
+        appendInventorySet(set, params, "available_stock", request.availableStock());
+        appendInventorySet(set, params, "locked_stock", request.lockedStock());
+        appendInventorySet(set, params, "sold_stock", request.soldStock());
+        if (params.isEmpty()) {
+            return getInventory(productId);
+        }
+        params.add(productId);
+        JdbcClient.StatementSpec spec = jdbcClient.sql("update product_inventory set " + set + " where product_id = ?");
+        for (Object param : params) {
+            spec = spec.param(param);
+        }
+        spec.update();
+        return getInventory(productId);
+    }
+
+    @Transactional
+    public void deleteInventory(long productId) {
+        int updated = jdbcClient.sql("delete from product_inventory where product_id = ?")
+                .param(productId)
+                .update();
+        if (updated == 0) {
+            throw new NoSuchElementException("inventory not found");
+        }
+    }
+
+    public Map<String, Object> getInventory(long productId) {
+        List<Map<String, Object>> rows = queryRows("""
+                        select i.product_id, p.name as product_name,
+                               i.available_stock, i.locked_stock, i.sold_stock,
+                               i.created_at, i.updated_at
+                        from product_inventory i
+                        join product p on p.id = i.product_id
+                        where i.product_id = ?
+                        """,
+                List.of(productId));
+        if (rows.isEmpty()) {
+            throw new NoSuchElementException("inventory not found");
+        }
+        return rows.get(0);
+    }
+
     private Duration jitter(Duration base) {
         return base.plusSeconds(ThreadLocalRandom.current().nextLong(30, 120));
     }
@@ -272,6 +392,69 @@ public class ProductService {
             }
             default -> throw new IllegalArgumentException("unsupported product sort: " + normalizedSort);
         };
+    }
+
+    private Map<String, Object> getProductAnyStatus(long productId) {
+        List<Map<String, Object>> rows = queryRows("""
+                        select id, name, price_cent, status, created_at, updated_at
+                        from product
+                        where id = ?
+                        """,
+                List.of(productId));
+        if (rows.isEmpty()) {
+            throw new NoSuchElementException("product not found");
+        }
+        return rows.get(0);
+    }
+
+    private void ensureProductExists(long productId) {
+        long count = jdbcClient.sql("select count(*) from product where id = ?")
+                .param(productId)
+                .query(Long.class)
+                .single();
+        if (count == 0) {
+            throw new NoSuchElementException("product not found");
+        }
+    }
+
+    private long generateProductId() {
+        return System.currentTimeMillis() * 1000 + ThreadLocalRandom.current().nextInt(1000);
+    }
+
+    private String requireName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("name must not be blank");
+        }
+        return name.trim();
+    }
+
+    private long requirePositivePrice(Long priceCent) {
+        if (priceCent == null || priceCent < 1) {
+            throw new IllegalArgumentException("priceCent must be greater than 0");
+        }
+        return priceCent;
+    }
+
+    private int normalizeStatus(Integer status, int defaultValue) {
+        int value = status == null ? defaultValue : status;
+        if (value != 0 && value != 1) {
+            throw new IllegalArgumentException("status must be 0 or 1");
+        }
+        return value;
+    }
+
+    private void appendInventorySet(StringBuilder set, List<Object> params, String column, Integer value) {
+        if (value == null) {
+            return;
+        }
+        if (value < 0) {
+            throw new IllegalArgumentException(column + " must be non-negative");
+        }
+        if (!set.isEmpty()) {
+            set.append(", ");
+        }
+        set.append(column).append(" = ?");
+        params.add(value);
     }
 
     private long queryCount(String sql, List<Object> params) {

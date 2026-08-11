@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS retail_order (
     KEY idx_retail_product_created (product_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS shopping_cart_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    selected TINYINT NOT NULL DEFAULT 1,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    UNIQUE KEY uk_cart_user_product (user_id, product_id),
+    KEY idx_cart_user_selected (user_id, selected),
+    KEY idx_cart_product (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS inventory_deduct_log (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     order_no VARCHAR(64) NOT NULL,

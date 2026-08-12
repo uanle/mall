@@ -20,6 +20,8 @@ spring:
       password: root
 
 mall:
+  gateway:
+    internal-secret: ${MALL_GATEWAY_INTERNAL_SECRET:mall-local-gateway-internal-secret}
   jwt:
     secret: mall-local-dev-secret-change-me
     ttl-seconds: 7200

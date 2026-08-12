@@ -1,6 +1,7 @@
 package com.resume.mall.gateway.audit;
 
 import com.resume.mall.gateway.ratelimit.GatewayRateLimitConstants;
+import com.resume.mall.common.UserHeaders;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
@@ -59,6 +60,29 @@ class UserApiAccessAuditGlobalFilterTest {
         filter.filter(exchange, filtered -> Mono.empty()).block();
 
         assertThat(repository.awaitBriefly()).isFalse();
+    }
+
+    @Test
+    void recordsLoginUserFromResponseHeaders() throws InterruptedException {
+        UserApiAccessAuditProperties properties = new UserApiAccessAuditProperties();
+        CapturingRepository repository = new CapturingRepository();
+        UserApiAccessAuditGlobalFilter filter = new UserApiAccessAuditGlobalFilter(properties, repository);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/auth/login").build());
+
+        filter.filter(exchange, filtered -> {
+            filtered.getResponse().setStatusCode(HttpStatus.OK);
+            filtered.getResponse().getHeaders().set(UserHeaders.USER_ID, "2");
+            filtered.getResponse().getHeaders().set(UserHeaders.USER_ROLE, "USER");
+            return Mono.empty();
+        }).block();
+
+        assertThat(repository.await()).isTrue();
+        UserApiAccessLog log = repository.saved.get();
+        assertThat(log.userId()).isEqualTo(2L);
+        assertThat(log.userRole()).isEqualTo("USER");
+        assertThat(log.path()).isEqualTo("/api/auth/login");
+        assertThat(log.success()).isTrue();
     }
 
     private static class CapturingRepository implements UserApiAccessLogRepository {

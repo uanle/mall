@@ -31,6 +31,10 @@ public class TradeOrderService {
     @Transactional
     public Map<String, Object> pay(String orderNo, long payerUserId, boolean allowHelpPay) {
         Map<String, Object> order = findByOrderNoOrThrow(orderNo);
+        long ownerUserId = ((Number) order.get("user_id")).longValue();
+        if (!allowHelpPay && ownerUserId != payerUserId) {
+            throw new SecurityException("only the order owner can pay this seckill order");
+        }
         String status = (String) order.get("status");
         if (PAID.equals(status) || COMPLETED.equals(status)) {
             return order;
@@ -38,11 +42,6 @@ public class TradeOrderService {
         if (!NEW.equals(status)) {
             throw new IllegalStateException("seckill order cannot be paid in status " + status);
         }
-        long ownerUserId = ((Number) order.get("user_id")).longValue();
-        if (!allowHelpPay && ownerUserId != payerUserId) {
-            throw new SecurityException("only the order owner can pay this seckill order");
-        }
-
         jdbcClient.sql("""
                         update trade_order
                         set status = 'PAID', payer_user_id = ?, paid_at = ?
@@ -65,8 +64,9 @@ public class TradeOrderService {
     }
 
     @Transactional
-    public Map<String, Object> complete(String orderNo) {
+    public Map<String, Object> complete(String orderNo, long userId) {
         Map<String, Object> order = findByOrderNoOrThrow(orderNo);
+        requireOwner(order, userId, "complete");
         String status = (String) order.get("status");
         if (COMPLETED.equals(status)) {
             return order;
@@ -93,14 +93,15 @@ public class TradeOrderService {
         return completedOrder;
     }
 
-    public Map<String, Object> findByRequestId(String requestId) {
+    public Map<String, Object> findByRequestId(String requestId, long userId) {
         List<Map<String, Object>> rows = jdbcClient.sql("""
                         select order_no, user_id, activity_id, product_id, amount_cent, status,
                                request_id, payer_user_id, paid_at, completed_at, created_at, updated_at
                         from trade_order
-                        where request_id = ?
+                        where request_id = ? and user_id = ?
                         """)
                 .param(requestId)
+                .param(userId)
                 .query()
                 .listOfRows();
         return rows.isEmpty() ? null : rows.get(0);
@@ -120,6 +121,13 @@ public class TradeOrderService {
             throw new IllegalArgumentException("seckill order not found");
         }
         return rows.get(0);
+    }
+
+    private void requireOwner(Map<String, Object> order, long userId, String action) {
+        long ownerUserId = ((Number) order.get("user_id")).longValue();
+        if (ownerUserId != userId) {
+            throw new SecurityException("only the order owner can " + action + " this seckill order");
+        }
     }
 
     private void cleanupReservationMarkers(Map<String, Object> order) {

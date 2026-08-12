@@ -5,7 +5,7 @@ services:
     profiles: ["docker-db"]
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: mall_trade
+      MYSQL_DATABASE: mall
     ports:
       - "3306:3306"
     volumes:
@@ -21,7 +21,7 @@ services:
     profiles: ["docker-db"]
     ports:
       - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "root"]
 
   rabbitmq:
     image: rabbitmq:3.13-management

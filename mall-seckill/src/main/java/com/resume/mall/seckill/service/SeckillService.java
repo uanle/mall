@@ -32,6 +32,9 @@ import java.util.concurrent.ThreadLocalRandom;
 public class SeckillService {
     private static final Logger LOGGER = LoggerFactory.getLogger(SeckillService.class);
     private static final Duration IDEMPOTENT_TTL = Duration.ofHours(2);
+    private static final String RESERVED = "RESERVED";
+    private static final String PUBLISHED = "PUBLISHED";
+    private static final String ORDER_CREATED = "ORDER_CREATED";
 
     private static final String RESERVE_STOCK_LUA = """
             local stock = tonumber(redis.call('GET', KEYS[1]) or '-1')
@@ -53,12 +56,18 @@ public class SeckillService {
     private final StringRedisTemplate redisTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final JdbcClient jdbcClient;
+    private final SeckillPublishCompensationService compensationService;
     private final DefaultRedisScript<Long> reserveScript;
 
-    public SeckillService(StringRedisTemplate redisTemplate, RabbitTemplate rabbitTemplate, JdbcClient jdbcClient) {
+    public SeckillService(
+            StringRedisTemplate redisTemplate,
+            RabbitTemplate rabbitTemplate,
+            JdbcClient jdbcClient,
+            SeckillPublishCompensationService compensationService) {
         this.redisTemplate = redisTemplate;
         this.rabbitTemplate = rabbitTemplate;
         this.jdbcClient = jdbcClient;
+        this.compensationService = compensationService;
         this.reserveScript = new DefaultRedisScript<>(RESERVE_STOCK_LUA, Long.class);
     }
 
@@ -123,10 +132,20 @@ public class SeckillService {
                 activity.amountCent(),
                 Instant.now());
         try {
+            insertReservationLog(requestId, userId, activityId);
+        } catch (DuplicateKeyException ex) {
+            rollbackRedisReservation(activityId, userId, requestId);
+            throw new IllegalStateException("request already used");
+        }
+        try {
             rabbitTemplate.convertAndSend(
                     RabbitNames.ORDER_EXCHANGE,
                     RabbitNames.ORDER_CREATE_ROUTING_KEY,
                     message,
+                    rabbitMessage -> {
+                        rabbitMessage.getMessageProperties().setHeader("requestId", requestId);
+                        return rabbitMessage;
+                    },
                     new CorrelationData(requestId));
         } catch (RuntimeException ex) {
             LOGGER.atError()
@@ -136,9 +155,7 @@ public class SeckillService {
                     .addKeyValue("userId", userId)
                     .setCause(ex)
                     .log("Failed to publish order creation message; reservation will be rolled back");
-            redisTemplate.opsForValue().increment(RedisKeys.seckillStock(activityId));
-            redisTemplate.delete(RedisKeys.seckillUser(activityId, userId));
-            redisTemplate.delete(RedisKeys.seckillRequest(requestId));
+            compensationService.compensatePublishFailure(requestId, "send exception: " + ex.getMessage());
             throw ex;
         }
         LOGGER.atInfo()
@@ -213,6 +230,13 @@ public class SeckillService {
         }
         ensureActiveProductExists(productId);
 
+        int reservedStock = status == 1 && LocalDateTime.now().isBefore(endTime)
+                ? countReservedStock(activityId)
+                : 0;
+        if (status == 1 && reservedStock > totalStock) {
+            throw new IllegalArgumentException("totalStock must not be less than reserved stock: " + reservedStock);
+        }
+
         jdbcClient.sql("""
                         update seckill_activity
                         set product_id = ?, start_time = ?, end_time = ?, total_stock = ?, status = ?
@@ -226,7 +250,7 @@ public class SeckillService {
                 .param(activityId)
                 .update();
         if (status == 1 && LocalDateTime.now().isBefore(endTime)) {
-            initStock(activityId, totalStock);
+            setAvailableStock(activityId, totalStock - reservedStock, endTime);
         } else {
             redisTemplate.delete(RedisKeys.seckillStock(activityId));
         }
@@ -459,11 +483,80 @@ public class SeckillService {
     }
 
     private boolean requestAlreadyAccepted(String requestId) {
-        long count = jdbcClient.sql("select count(*) from trade_order where request_id = ?")
+        long count = jdbcClient.sql("""
+                        select count(*)
+                        from (
+                            select request_id from trade_order where request_id = ?
+                            union
+                            select request_id
+                            from stock_deduct_log
+                            where request_id = ?
+                              and status in ('RESERVED', 'PUBLISHED', 'ORDER_CREATED')
+                        ) t
+                        """)
+                .param(requestId)
                 .param(requestId)
                 .query(Long.class)
                 .single();
         return count > 0;
+    }
+
+    private void insertReservationLog(String requestId, long userId, long activityId) {
+        jdbcClient.sql("""
+                        insert into stock_deduct_log(request_id, user_id, activity_id, status, reason)
+                        values (?, ?, ?, ?, null)
+                        """)
+                .param(requestId)
+                .param(userId)
+                .param(activityId)
+                .param(RESERVED)
+                .update();
+    }
+
+    private void rollbackRedisReservation(long activityId, long userId, String requestId) {
+        redisTemplate.opsForValue().increment(RedisKeys.seckillStock(activityId));
+        redisTemplate.delete(RedisKeys.seckillUser(activityId, userId));
+        redisTemplate.delete(RedisKeys.seckillRequest(requestId));
+    }
+
+    private void setAvailableStock(long activityId, int availableStock, LocalDateTime endTime) {
+        Duration ttl = Duration.between(LocalDateTime.now(), endTime);
+        if (ttl.isNegative() || ttl.isZero()) {
+            redisTemplate.delete(RedisKeys.seckillStock(activityId));
+            return;
+        }
+        redisTemplate.opsForValue().set(RedisKeys.seckillStock(activityId), String.valueOf(availableStock), ttl);
+        LOGGER.atInfo()
+                .addKeyValue("event", "seckill_stock_recalculated")
+                .addKeyValue("activityId", activityId)
+                .addKeyValue("availableStock", availableStock)
+                .addKeyValue("ttlSeconds", ttl.toSeconds())
+                .log("Seckill Redis stock recalculated from total stock and reserved stock");
+    }
+
+    private int countReservedStock(long activityId) {
+        long reserved = jdbcClient.sql("""
+                        select count(*)
+                        from (
+                            select request_id
+                            from stock_deduct_log
+                            where activity_id = ?
+                              and status in ('RESERVED', 'PUBLISHED', 'ORDER_CREATED')
+                            union
+                            select request_id
+                            from trade_order
+                            where activity_id = ?
+                              and status in ('NEW', 'PAID', 'COMPLETED')
+                        ) t
+                        """)
+                .param(activityId)
+                .param(activityId)
+                .query(Long.class)
+                .single();
+        if (reserved > Integer.MAX_VALUE) {
+            throw new IllegalStateException("reserved stock is too large");
+        }
+        return (int) reserved;
     }
 
     private boolean userHasUnclosedOrder(long userId, long activityId) {

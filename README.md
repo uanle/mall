@@ -1,128 +1,135 @@
 # mall-trade
 
-This repository is a from-scratch backend project for a resume-grade high-concurrency seckill trade path.
+这是一个从零实现的后端项目，目标是展示高并发秒杀交易链路的核心工程能力。
 
-Reference scope: use `macrozheng/mall` for business boundaries only. Do not copy or rename that repository.
+业务边界参考 `macrozheng/mall` 的电商场景，但不复制、不重命名该仓库代码。
 
-Core path:
+核心链路：
 
-`user -> gateway -> product -> seckill qualification -> Redis Lua stock reservation -> RabbitMQ -> order -> MySQL`
+```text
+user -> gateway -> product -> seckill qualification -> Redis Lua stock reservation -> RabbitMQ -> order -> MySQL
+```
 
-## Modules
+## 模块说明
 
-- `mall-gateway`: route entry, JWT session validation, Sentinel route/IP/user rate limiting.
-- `mall-user`: registration, login, JWT issuing, user role and level APIs.
-- `mall-product`: product and seckill activity query APIs.
-- `mall-seckill`: Redis Lua atomic stock reservation and MQ publishing.
-- `mall-order`: RabbitMQ consumer, idempotent order creation, timeout close job.
-- `mall-common`: shared DTOs, constants, API response.
+- `mall-gateway`：统一入口，负责路由、JWT 会话校验、Sentinel 路由/IP/用户维度限流、接口访问审计。
+- `mall-user`：注册、登录、JWT 签发、用户角色/等级管理、接口审计日志查询。
+- `mall-product`：商品、库存、秒杀活动查询和管理接口。
+- `mall-seckill`：Redis Lua 原子预扣库存、秒杀资格校验、MQ 投递。
+- `mall-order`：RabbitMQ 消费、幂等创建订单、支付、完成、超时关闭。
+- `mall-common`：共享 DTO、常量、响应结构和工具类。
+- `mall-observability`：共享日志、链路追踪、Prometheus 指标和 HTTP 访问日志配置。
 
-Package convention:
+包目录约定：
 
-- `controller`: REST API entrypoints.
-- `service`: business orchestration and transaction boundary.
-- `entity`: MyBatis-Plus table mappings.
-- `mapper`: MyBatis-Plus mapper interfaces.
-- `dto`: request/response DTOs.
-- `config`: framework and middleware configuration.
-- `mq`: message producers/consumers.
-- `job`: scheduled jobs.
-- `exception`: REST exception handlers.
+- `controller`：REST API 入口。
+- `service`：业务编排和事务边界。
+- `entity`：MyBatis-Plus 表映射。
+- `mapper`：MyBatis-Plus Mapper。
+- `dto`：请求和响应 DTO。
+- `config`：框架和中间件配置。
+- `mq`：消息生产者和消费者。
+- `job`：定时任务。
+- `exception`：REST 异常处理。
 
-## Start
+## 本地启动
 
-1. Install JDK 17 and Maven 3.9+.
-2. Prepare local MySQL, Redis, and RabbitMQ:
+1. 安装 JDK 17 和 Maven 3.9+。
 
-- MySQL: `localhost:3306`, database `mall`, user `root`, password `root`.
-- Redis: `localhost:6379`, password `root`.
-- RabbitMQ: `localhost:5672`, management UI `http://localhost:15672`, user `mall`, password `mall`.
+2. 准备本地 MySQL、Redis、RabbitMQ：
 
-Initialize MySQL tables:
+- MySQL：`localhost:3306`，数据库 `mall`，用户 `root`，密码 `root`。
+- Redis：`localhost:6379`，密码 `root`。
+- RabbitMQ：`localhost:5672`，管理界面 `http://localhost:15672`，用户 `mall`，密码 `mall`。
+
+初始化 MySQL 表：
 
 ```powershell
 Get-Content scripts\mysql\init.sql | & 'D:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -uroot -proot mall
 ```
 
-The SQL creates the required tables: `mall_user`, `product`, `product_inventory`, `retail_order`, `inventory_deduct_log`, `seckill_activity`, `trade_order`, and `stock_deduct_log`.
+初始化脚本会创建 `mall_user`、`product`、`product_inventory`、`retail_order`、`inventory_deduct_log`、`seckill_activity`、`trade_order`、`stock_deduct_log`、`user_api_access_log` 等表。
 
-Default users:
+默认用户：
 
-- admin / admin123: `ADMIN`, `NONE`
-- user / user123: `USER`, `NORMAL`
-- vip / user123: `USER`, `VIP`
-- svip / user123: `USER`, `SVIP`
+- `admin / admin123`：`ADMIN`，`NONE`
+- `user / user123`：`USER`，`NORMAL`
+- `vip / user123`：`USER`，`VIP`
+- `svip / user123`：`USER`，`SVIP`
 
-3. Start local RabbitMQ.
+3. 启动 RabbitMQ。
 
-On Windows, if RabbitMQ is installed as a service, start it from Services or run:
+如果 Windows 上 RabbitMQ 是服务安装，可以在服务管理器中启动，也可以运行：
 
 ```powershell
 rabbitmq-service.bat start
 ```
 
-Then enable the management UI if it is not already enabled:
+如果管理界面未启用，执行：
 
 ```powershell
 rabbitmq-plugins enable rabbitmq_management
 ```
 
-If you want Docker infrastructure instead, run:
+也可以用 Docker 启动基础设施：
 
 ```powershell
 docker compose --profile docker-db --profile docker-mq up -d
 ```
 
-If you only want Docker RabbitMQ:
+Docker MySQL 默认创建数据库 `mall`，Redis 默认密码是 `root`，与各服务 `application.yml` 保持一致。如果之前已经用旧配置启动过 Docker 数据库，先停止并删除旧容器和数据卷后再重新启动，否则 MySQL 初始化变量不会再次生效：
+
+```powershell
+docker compose --profile docker-db down -v
+docker compose --profile docker-db --profile docker-mq up -d
+```
+
+只启动 RabbitMQ：
 
 ```powershell
 docker compose --profile docker-mq up -d
 ```
 
-Optional Sentinel Dashboard and Nacos rule center:
+可选启动 Sentinel Dashboard 和 Nacos 规则中心：
 
 ```powershell
 docker compose --profile docker-governance up -d --build
 ```
 
-The default `local` profile loads checked-in Sentinel rules and does not require
-Nacos. Sentinel Dashboard is available at `http://localhost:8858`; Nacos 3 uses
-`http://localhost:8848` for its service API and `http://localhost:8850` for its
-console.
+默认 `local` profile 会读取仓库内置 Sentinel 规则，不依赖 Nacos。Sentinel Dashboard 地址是 `http://localhost:8858`；Nacos 3 服务 API 是 `http://localhost:8848`，控制台是 `http://localhost:8850`。
 
-4. Start services:
+4. 启动服务：
 
 ```powershell
 .\scripts\start-services.ps1 -Build
 ```
 
-Structured application logs are written locally to `logs/*-app.log` by default.
-View a compact local summary without Docker:
+默认会把结构化应用日志写入本地 `logs/*-app.log`。查看本地日志摘要：
 
 ```powershell
 .\scripts\watch-logs.ps1
 .\scripts\watch-logs.ps1 -Service gateway -Follow
 ```
 
-Prometheus metrics are available from each service, for example
-`http://localhost:8080/actuator/prometheus` for the gateway.
+Prometheus 指标可直接从各服务 actuator 读取，例如 Gateway：
 
-User API access audit records are stored in MySQL table
-`user_api_access_log`. If the database was initialized before this table was
-added, run:
+```text
+http://localhost:8080/actuator/prometheus
+```
+
+用户接口访问审计记录会写入 MySQL 表 `user_api_access_log`。如果你的数据库是在该表加入之前初始化的，执行迁移：
 
 ```powershell
 Get-Content scripts\mysql\migrate-user-api-access-log.sql | & 'D:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -uroot -proot mall
 ```
 
-Query audit records with an admin token through the gateway:
+通过 Gateway 使用管理员 Token 查询审计记录：
 
 ```powershell
 curl.exe "http://localhost:8080/api/audit/access-logs?pageNum=1&pageSize=20&userId=2&success=false" -H "Authorization: Bearer $adminToken"
 ```
 
-Docker is only needed if you want the full optional visual stack with Grafana,
-Loki, Alloy, Tempo, and Prometheus:
+Docker 可视化观测栈是可选增强，只在需要 Grafana、Loki、Alloy、Tempo、Prometheus 时启动：
 
 ```powershell
 docker compose --profile observability up -d
@@ -130,20 +137,13 @@ docker compose --profile observability up -d
 .\scripts\start-services.ps1 -Build -TraceExport
 ```
 
-Grafana is then available at `http://localhost:3000` with local credentials
-`admin / admin`. Application logs are collected from `logs/*-app.log`, and
-correlated with Tempo traces by `traceId`. See
-[`docs/observability.md`](docs/observability.md) for configuration, production
-guidance, and LogQL examples.
+Grafana 地址是 `http://localhost:3000`，本地账号 `admin / admin`。日志会从 `logs/*-app.log` 采集到 Loki，并可通过 `traceId` 关联 Tempo 调用链。更多配置见 [观测与日志](docs/observability.md)。
 
-`-TraceExport` enables OTLP trace export for the optional stack. The legacy
-`-Observability` switch is kept as an alias:
+`-TraceExport` 用于打开 OTLP trace 导出；兼容旧参数 `-Observability`。
 
-```powershell
-.\scripts\start-services.ps1 -Build -TraceExport
-```
+## 秒杀流程
 
-5. Login and keep the token:
+登录普通用户并保存 Token：
 
 ```powershell
 $login = Invoke-RestMethod `
@@ -155,7 +155,7 @@ $login = Invoke-RestMethod `
 $token = $login.data.accessToken
 ```
 
-6. Create a seckill activity with admin token:
+登录管理员：
 
 ```powershell
 $adminLogin = Invoke-RestMethod `
@@ -167,6 +167,8 @@ $adminLogin = Invoke-RestMethod `
 $adminToken = $adminLogin.data.accessToken
 ```
 
+创建秒杀活动：
+
 ```powershell
 curl.exe -X POST "http://localhost:8080/internal/seckill/activities" `
   -H "Authorization: Bearer $adminToken" `
@@ -174,7 +176,7 @@ curl.exe -X POST "http://localhost:8080/internal/seckill/activities" `
   -d '{"id":1101,"productId":2001,"startTime":"2026-08-11T00:00:00","endTime":"2026-08-31T23:59:59","totalStock":1000,"status":1}'
 ```
 
-7. Submit a seckill request through the gateway:
+通过 Gateway 提交秒杀请求：
 
 ```powershell
 $requestId = [guid]::NewGuid().ToString()
@@ -187,7 +189,7 @@ Start-Sleep -Seconds 2
 curl.exe "http://localhost:8080/api/orders/seckill-requests/$requestId"
 ```
 
-Pay and complete the seckill order:
+支付并完成秒杀订单：
 
 ```powershell
 $seckillOrder = Invoke-RestMethod `
@@ -201,35 +203,37 @@ curl.exe -X POST "http://localhost:8080/api/orders/seckill-orders/$orderNo/payme
 curl.exe -X POST "http://localhost:8080/api/orders/seckill-orders/$orderNo/completion" -H "Authorization: Bearer $token"
 ```
 
-Use the dedicated help-payment endpoint when another logged-in user pays for the order:
+如果由其他登录用户代付，调用专用代付接口：
 
 ```powershell
 curl.exe -X POST "http://localhost:8080/api/orders/seckill-orders/$orderNo/help-payments" -H "Authorization: Bearer $otherUserToken"
 ```
 
-## Retail Order Flow
+## 普通订单流程
 
-REST path:
+REST 路径：
 
-`GET /api/products/{productId} -> POST /api/orders -> POST /api/orders/{orderNo}/payments -> POST /api/orders/{orderNo}/completion -> GET /api/orders/{orderNo}`
+```text
+GET /api/products/{productId} -> POST /api/orders -> POST /api/orders/{orderNo}/payments -> POST /api/orders/{orderNo}/completion -> GET /api/orders/{orderNo}
+```
 
-Run the smoke test:
+运行冒烟测试：
 
 ```powershell
 .\scripts\test-retail-order.ps1
 ```
 
-Swagger UI:
+Swagger UI：
 
-- Gateway aggregated Swagger UI: `http://localhost:8080/swagger-ui/index.html`
-- User service: `http://localhost:8084/swagger-ui/index.html`
-- Product service: `http://localhost:8081/swagger-ui/index.html`
-- Seckill service: `http://localhost:8082/swagger-ui/index.html`
-- Order service: `http://localhost:8083/swagger-ui/index.html`
+- Gateway 聚合入口：`http://localhost:8080/swagger-ui/index.html`
+- User 服务：`http://localhost:8084/swagger-ui/index.html`
+- Product 服务：`http://localhost:8081/swagger-ui/index.html`
+- Seckill 服务：`http://localhost:8082/swagger-ui/index.html`
+- Order 服务：`http://localhost:8083/swagger-ui/index.html`
 
-## User and Permission Flow
+## 用户与权限
 
-Login:
+登录：
 
 ```powershell
 $login = Invoke-RestMethod `
@@ -241,14 +245,14 @@ $login = Invoke-RestMethod `
 $token = $login.data.accessToken
 ```
 
-Call protected user/order/seckill APIs:
+调用受保护接口：
 
 ```powershell
 curl.exe "http://localhost:8080/api/users/me" -H "Authorization: Bearer $token"
 curl.exe "http://localhost:8080/api/orders/stock-check?productId=2001&quantity=1" -H "Authorization: Bearer $token"
 ```
 
-Admin APIs require `ADMIN` role:
+管理员接口要求 `ADMIN` 角色：
 
 ```powershell
 $adminLogin = Invoke-RestMethod `
@@ -262,18 +266,18 @@ $adminToken = $adminLogin.data.accessToken
 curl.exe "http://localhost:8080/api/users?pageNum=1&pageSize=10" -H "Authorization: Bearer $adminToken"
 ```
 
-User login/session cache:
+用户登录和会话缓存：
 
-- `cache:user:auth:{username}` caches login authentication JSON, including `passwordHash` for password verification.
-- `cache:user:id:{userId}` caches current user profile JSON, excluding `passwordHash`.
-- `cache:token:{jti}` stores the logged-in token session JSON. Gateway validates JWT first, then checks this Redis key.
-- `cache:user:tokens:{userId}` stores the user's active token ids, used to remove old sessions when user status/permission changes.
-- Cache value is stored as JSON through Jackson Redis serialization.
-- User cache TTL defaults to 1800 seconds. Token session TTL follows `mall.jwt.ttl-seconds`.
-- Registration writes user cache; login writes token session; logout deletes token session; admin updates evict user cache and active token sessions.
-- If old cache values exist from earlier versions, delete `cache:user:*` and `cache:token:*` or wait for TTL expiration.
+- `cache:user:auth:{username}`：缓存登录校验信息，包含用于密码校验的 `passwordHash`。
+- `cache:user:id:{userId}`：缓存当前用户资料，不包含 `passwordHash`。
+- `cache:token:{jti}`：保存已登录 Token 会话；Gateway 先校验 JWT，再检查该 Redis key。
+- `cache:user:tokens:{userId}`：保存用户活跃 Token ID，用于状态或权限变更后清理旧会话。
+- 缓存值使用 Jackson Redis 序列化为 JSON。
+- 用户缓存 TTL 默认 1800 秒；Token 会话 TTL 跟随 `mall.jwt.ttl-seconds`。
+- 注册会写用户缓存；登录会写 Token 会话；登出会删除 Token 会话；管理员更新用户会清理用户缓存和活跃 Token 会话。
+- 如果存在旧版本缓存，可删除 `cache:user:*` 和 `cache:token:*`，或等待 TTL 过期。
 
-Common paging examples:
+常用分页查询示例：
 
 ```powershell
 curl.exe "http://localhost:8080/api/products?pageNum=1&pageSize=10&name=Phone&status=1"
@@ -284,36 +288,34 @@ curl.exe "http://localhost:8080/api/seckill/stock-deduct-logs?pageNum=1&pageSize
 curl.exe "http://localhost:8080/api/orders?pageNum=1&pageSize=10&userId=1&status=COMPLETED"
 ```
 
-## Performance Worklog Target
+## 压测记录要求
 
-Record each pressure-test round in `docs/perf-worklog.md`:
+每一轮压测结果记录到 [压测工作记录](docs/perf-worklog.md)，至少包含：
 
-- baseline design
-- JMeter config
-- TPS, p95, p99, error rate
-- MySQL slow SQL and indexes
-- Redis latency and hot keys
-- RabbitMQ publish/consume lag
-- thread pool metrics
-- optimization decision
-- retest result
+- 基线设计
+- JMeter 配置
+- TPS、p95、p99、错误率
+- MySQL 慢 SQL 和索引
+- Redis 延迟和热点 key
+- RabbitMQ 发布/消费积压
+- 线程池指标
+- 优化决策
+- 复测结果
 
-## Gateway Rate Limiting
+## Gateway 限流
 
-Gateway limits are applied before downstream forwarding:
+Gateway 在转发到下游服务之前完成限流：
 
-- route-wide and caller-IP limits use Sentinel Gateway rules;
-- authenticated write/seckill routes also use trusted user-id parameter rules;
-- blocked requests return HTTP `429`, `Retry-After: 1`, and a stable JSON body;
-- local rules are stored under `mall-gateway/src/main/resources/sentinel`;
-- the `prod` profile reads persistent dynamic rules from Nacos.
+- 路由级和调用方 IP 级限流使用 Sentinel Gateway 规则。
+- 已登录写接口和秒杀接口额外使用可信 `userId` 参数限流。
+- 被限流的请求返回 HTTP `429`、`Retry-After: 1` 和稳定 JSON 响应体。
+- 本地规则位于 `mall-gateway/src/main/resources/sentinel`。
+- `prod` profile 从 Nacos 读取持久化动态规则。
 
-Publish the baseline files to a local Nacos instance with:
+发布基线规则到本地 Nacos：
 
 ```powershell
 .\scripts\sentinel\publish-rules.ps1
 ```
 
-See [Gateway Sentinel rate limiting](docs/sentinel-rate-limiting.md) for rule
-ownership, production startup, readiness behavior, trusted proxies, metrics,
-and threshold tuning.
+规则归属、生产启动、就绪检查、可信代理、指标和阈值调优见 [Gateway Sentinel 限流](docs/sentinel-rate-limiting.md)。

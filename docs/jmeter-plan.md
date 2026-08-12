@@ -1,8 +1,8 @@
-# JMeter Plan
+# JMeter 压测计划
 
-## Target API
+## 目标接口
 
-Use gateway endpoint:
+通过 Gateway 调用：
 
 ```text
 POST http://localhost:8080/api/seckill/1001/reserve
@@ -10,32 +10,32 @@ X-User-Id: ${userId}
 Idempotency-Key: ${requestId}
 ```
 
-## Thread Group
+## 线程组
 
-- Threads: start with 100, then 300, 500, 1000.
-- Ramp-up: 30 seconds.
-- Duration: 3 minutes per round.
-- CSV data:
-  - `userId`: unique user id.
-  - `requestId`: unique request id.
+- 线程数：从 100 开始，逐步提升到 300、500、1000。
+- Ramp-up：30 秒。
+- 持续时间：每轮 3 分钟。
+- CSV 数据：
+  - `userId`：唯一用户 ID。
+  - `requestId`：唯一请求 ID。
 
-## Metrics
+## 指标
 
-Record these after every round:
+每轮结束后记录：
 
 - TPS
 - p95
 - p99
-- error rate
-- Redis used CPU and command latency
-- RabbitMQ ready/unacked messages
-- MySQL slow SQL and lock waits
-- JVM thread count and GC pause
+- 错误率
+- Redis CPU 使用率和命令延迟
+- RabbitMQ ready/unacked 消息数
+- MySQL 慢 SQL 和锁等待
+- JVM 线程数和 GC 暂停
 
-## Expected Rounds
+## 预期轮次
 
-1. Direct MySQL order creation baseline.
-2. Redis Lua stock reservation + RabbitMQ async order creation.
-3. Add rate limiting, hot key protection, consumer tuning, MySQL index tuning.
+1. 直接写 MySQL 创建订单的基线版本。
+2. Redis Lua 预扣库存 + RabbitMQ 异步创建订单。
+3. 加入限流、热点 key 保护、消费者调优、MySQL 索引调优。
 
-Write the comparison into `docs/perf-worklog.md`.
+对比结果写入 [压测工作记录](perf-worklog.md)。

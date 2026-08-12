@@ -1,44 +1,41 @@
-# Gateway Sentinel Rate Limiting
+# Gateway Sentinel 限流
 
-`mall-gateway` applies four protections in this order:
+`mall-gateway` 按以下顺序提供四层保护：
 
-1. sanitize caller-controlled identity headers and derive `X-Real-IP`;
-2. Sentinel Gateway rules enforce route-wide and per-IP limits;
-3. JWT/Redis authentication establishes a trusted user id;
-4. Sentinel parameter-flow rules enforce per-user limits on write and seckill routes.
+1. 清理调用方可伪造的身份请求头，并派生可信 `X-Real-IP`。
+2. Sentinel Gateway 规则执行路由维度和 IP 维度限流。
+3. JWT 和 Redis 会话校验建立可信用户 ID。
+4. Sentinel parameter-flow 规则对写接口和秒杀接口执行用户维度限流。
 
-## Profiles
+## Profile
 
-The default `local` profile reads rules from:
+默认 `local` profile 从以下文件读取规则：
 
 - `sentinel/gateway-flow-rules.json`
 - `sentinel/gateway-api-groups.json`
 - `sentinel/user-param-flow-rules.json`
 
-The `prod` profile reads the same three rule sets from Nacos. Sentinel rules are
-per Gateway instance. Divide the desired service-wide budget by the number of
-Gateway instances, or evaluate Sentinel cluster flow control when an exact
-global quota is required.
+`prod` profile 从 Nacos 读取同样三组规则。Sentinel 规则作用于单个 Gateway 实例。如果需要控制整个服务集群的总限额，应把目标总预算除以 Gateway 实例数；如果需要严格全局配额，需要评估 Sentinel 集群流控。
 
-## Local dashboard and Nacos
+## 本地 Dashboard 和 Nacos
 
-Start the governance services:
+启动治理组件：
 
 ```powershell
 docker compose --profile docker-governance up -d --build
 ```
 
-- Sentinel Dashboard: `http://localhost:8858` (`sentinel` / `sentinel`)
-- Nacos service API: `http://localhost:8848`
-- Nacos 3 console: `http://localhost:8850`
+- Sentinel Dashboard：`http://localhost:8858`，账号 `sentinel / sentinel`
+- Nacos 服务 API：`http://localhost:8848`
+- Nacos 3 控制台：`http://localhost:8850`
 
-Publish the repository-owned baseline rules to Nacos:
+把仓库维护的基线规则发布到 Nacos：
 
 ```powershell
 .\scripts\sentinel\publish-rules.ps1
 ```
 
-Then run Gateway with the production rule source:
+然后用生产规则源启动 Gateway：
 
 ```powershell
 $env:SPRING_PROFILES_ACTIVE = 'prod'
@@ -46,20 +43,17 @@ $env:NACOS_ADDR = 'localhost:8848'
 .\scripts\start-services.ps1 -Build
 ```
 
-Create the Nacos namespace first when `NACOS_NAMESPACE` is non-empty. If Nacos
-authentication is enabled, obtain an access token and pass it to the publisher:
+如果 `NACOS_NAMESPACE` 非空，需要先创建对应 namespace。Nacos 开启鉴权时，先获取 access token，再传给发布脚本：
 
 ```powershell
 .\scripts\sentinel\publish-rules.ps1 -Namespace 'mall-prod' -AccessToken $token
 ```
 
-Do not use the open-source Sentinel Dashboard's direct client rule editing as
-the production source of truth: those edits are in-memory. Update Nacos (or a
-deployment pipeline that publishes to Nacos) instead.
+不要把开源 Sentinel Dashboard 的客户端直连编辑作为生产规则事实来源，因为这些修改只在内存中生效。生产规则应更新到 Nacos，或由部署流水线发布到 Nacos。
 
-## Response contract
+## 响应约定
 
-Blocked requests return:
+被限流的请求返回：
 
 ```http
 HTTP/1.1 429 Too Many Requests
@@ -72,21 +66,14 @@ Content-Type: application/json
 {"code":429,"message":"request rate limit exceeded","data":null}
 ```
 
-The Prometheus counter is `mall_gateway_rate_limit_blocked_total`, tagged by
-`layer`, `resource`, and `block_type`.
+Prometheus 计数器是 `mall_gateway_rate_limit_blocked_total`，标签包括 `layer`、`resource`、`block_type`。
 
-## Readiness and operations
+## 就绪检查与运维
 
-`/actuator/health/readiness` is `DOWN` when a required Gateway/API/user rule is
-missing. Liveness does not depend on Nacos. Existing instances keep their
-in-memory rules during a temporary Nacos outage, while a new unconfigured
-instance should not receive traffic.
+当必需的 Gateway/API/user 规则缺失时，`/actuator/health/readiness` 返回 `DOWN`。Liveness 不依赖 Nacos。已有实例在 Nacos 短暂不可用时会保留内存中的规则；新的未配置实例不应接收流量。
 
-Only health endpoints are public. Metrics, Prometheus, and Sentinel actuator
-details require an admin token and should additionally be restricted to the
-operations network. Set `MALL_GATEWAY_TRUSTED_PROXIES` to a comma-separated list
-of exact reverse-proxy IP addresses before trusting `X-Forwarded-For`; otherwise
-the direct peer address is used.
+只有 health 端点公开。Metrics、Prometheus、Sentinel actuator 详情都需要管理员 Token，并且生产环境还应限制在运维网络内访问。
 
-Tune the checked-in thresholds with `docs/jmeter-plan.md`. Stateful POST retries
-must retain the original `Idempotency-Key` and use randomized backoff after 429.
+信任 `X-Forwarded-For` 之前，必须把 `MALL_GATEWAY_TRUSTED_PROXIES` 设置为精确的反向代理 IP 列表，多个 IP 用英文逗号分隔。未配置时系统使用直连 peer 地址。
+
+限流阈值应结合 [JMeter 压测计划](jmeter-plan.md) 调整。有状态 POST 重试必须复用原始 `Idempotency-Key`，收到 429 后使用随机退避。

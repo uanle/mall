@@ -1,5 +1,6 @@
 package com.resume.mall.gateway.audit;
 
+import com.resume.mall.common.UserHeaders;
 import com.resume.mall.gateway.ratelimit.GatewayRateLimitConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,8 +62,8 @@ public class UserApiAccessAuditGlobalFilter implements GlobalFilter, Ordered {
                 null,
                 safe(exchange.getResponse().getHeaders().getFirst("X-Trace-Id")),
                 safe(firstHeader(exchange, "Idempotency-Key", "X-Request-Id")),
-                exchange.getAttribute(GatewayRateLimitConstants.AUTHENTICATED_USER_ID_ATTRIBUTE),
-                safe(exchange.getAttribute(GatewayRateLimitConstants.AUTHENTICATED_USER_ROLE_ATTRIBUTE)),
+                resolveUserId(exchange),
+                resolveUserRole(exchange),
                 routeId(exchange),
                 exchange.getRequest().getMethod().name(),
                 safe(exchange.getRequest().getURI().getPath(), 512),
@@ -95,6 +96,30 @@ public class UserApiAccessAuditGlobalFilter implements GlobalFilter, Ordered {
     private String routeId(ServerWebExchange exchange) {
         Route route = exchange.getAttribute(GATEWAY_ROUTE_ATTR);
         return route == null ? null : safe(route.getId());
+    }
+
+    private Long resolveUserId(ServerWebExchange exchange) {
+        Long authenticatedUserId = exchange.getAttribute(GatewayRateLimitConstants.AUTHENTICATED_USER_ID_ATTRIBUTE);
+        if (authenticatedUserId != null) {
+            return authenticatedUserId;
+        }
+        String responseUserId = exchange.getResponse().getHeaders().getFirst(UserHeaders.USER_ID);
+        if (responseUserId == null || responseUserId.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(responseUserId.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String resolveUserRole(ServerWebExchange exchange) {
+        String authenticatedUserRole = safe(exchange.getAttribute(GatewayRateLimitConstants.AUTHENTICATED_USER_ROLE_ATTRIBUTE));
+        if (authenticatedUserRole != null) {
+            return authenticatedUserRole;
+        }
+        return safe(exchange.getResponse().getHeaders().getFirst(UserHeaders.USER_ROLE));
     }
 
     private String safe(Object value) {

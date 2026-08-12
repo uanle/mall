@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS retail_order (
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     UNIQUE KEY uk_retail_order_no (order_no),
-    UNIQUE KEY uk_retail_idempotency_key (idempotency_key),
+    UNIQUE KEY uk_retail_user_idempotency_key (user_id, idempotency_key),
     KEY idx_retail_user_created (user_id, created_at),
     KEY idx_retail_status_created (status, created_at),
     KEY idx_retail_product_created (product_id, created_at)
@@ -396,3 +396,28 @@ ON DUPLICATE KEY UPDATE
                      end_time = VALUES(end_time),
                      total_stock = VALUES(total_stock),
                      status = VALUES(status);
+
+
+INSERT INTO mall_user (
+    id,
+    username,
+    password_hash,
+    role,
+    level,
+    status
+)
+WITH RECURSIVE nums AS (
+    SELECT 1 AS n
+    UNION ALL
+    SELECT n + 1
+    FROM nums
+    WHERE n < 200
+)
+SELECT
+    n + 4,
+    CONCAT('test', n),
+    SHA2(CONCAT('mall:test', n, '123'), 256),
+    'USER',
+    'NORMAL',
+    1
+FROM nums;

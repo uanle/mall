@@ -30,14 +30,17 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
     private static final Logger LOGGER = LoggerFactory.getLogger(AuthGlobalFilter.class);
 
     private final String jwtSecret;
+    private final String internalSecret;
     private final ReactiveStringRedisTemplate redisTemplate;
     @Value("${mall.gateway.management.public-prometheus:false}")
     private boolean publicPrometheus;
 
     public AuthGlobalFilter(
             @Value("${mall.jwt.secret}") String jwtSecret,
+            @Value("${mall.gateway.internal-secret}") String internalSecret,
             ReactiveStringRedisTemplate redisTemplate) {
         this.jwtSecret = jwtSecret;
+        this.internalSecret = internalSecret;
         this.redisTemplate = redisTemplate;
     }
 
@@ -97,12 +100,14 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
                                 headers.remove(UserHeaders.USER_ROLE);
                                 headers.remove(UserHeaders.USER_LEVEL);
                                 headers.remove(UserHeaders.TOKEN_ID);
+                                headers.remove(UserHeaders.GATEWAY_INTERNAL_SECRET);
                             })
                             .header(UserHeaders.USER_ID, String.valueOf(finalClaims.userId()))
                             .header(UserHeaders.USERNAME, finalClaims.username())
                             .header(UserHeaders.USER_ROLE, finalClaims.role())
                             .header(UserHeaders.USER_LEVEL, finalClaims.level())
                             .header(UserHeaders.TOKEN_ID, finalClaims.jti())
+                            .header(UserHeaders.GATEWAY_INTERNAL_SECRET, internalSecret)
                             .build();
                     ServerWebExchange authenticatedExchange = exchange.mutate().request(mutatedRequest).build();
                     authenticatedExchange.getAttributes().put(
@@ -152,6 +157,13 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             return true;
         }
         if (path.startsWith("/api/inventories")) {
+            return true;
+        }
+        if ((path.startsWith("/api/products") || path.startsWith("/api/activities"))
+                && !HttpMethod.GET.equals(method)) {
+            return true;
+        }
+        if (path.startsWith("/api/seckill/activities") && !HttpMethod.GET.equals(method)) {
             return true;
         }
         if (path.equals("/api/users")) {

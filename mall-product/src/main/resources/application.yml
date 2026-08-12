@@ -24,3 +24,7 @@ management:
     web:
       exposure:
         include: health,metrics,prometheus
+
+mall:
+  gateway:
+    internal-secret: ${MALL_GATEWAY_INTERNAL_SECRET:mall-local-gateway-internal-secret}

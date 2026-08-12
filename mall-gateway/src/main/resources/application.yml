@@ -156,6 +156,7 @@ mall:
   jwt:
     secret: mall-local-dev-secret-change-me
   gateway:
+    internal-secret: ${MALL_GATEWAY_INTERNAL_SECRET:mall-local-gateway-internal-secret}
     access-audit:
       enabled: ${MALL_GATEWAY_ACCESS_AUDIT_ENABLED:true}
     rate-limit:

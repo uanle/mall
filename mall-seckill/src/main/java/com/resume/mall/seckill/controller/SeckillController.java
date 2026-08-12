@@ -37,7 +37,7 @@ public class SeckillController {
         this.seckillService = seckillService;
     }
 
-    @Operation(summary = "秒杀资格校验并预扣库存", description = "通过 Redis Lua 原子判断库存、用户是否重复参与、请求是否重复；预扣成功后发布订单创建消息到 RabbitMQ。")
+    @Operation(summary = "用户参与秒杀活动，秒杀资格校验并预扣库存", description = "通过 Redis Lua 原子判断库存、用户是否重复参与、请求是否重复；预扣成功后发布订单创建消息到 RabbitMQ。")
     @PostMapping("/api/seckill/{activityId}/reserve")
     public ApiResponse<ReserveResult> reserve(
             @PathVariable("activityId") long activityId,

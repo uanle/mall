@@ -85,8 +85,10 @@ public class OrderController {
 
     @Operation(summary = "完成订单", description = "将 PAID 状态订单流转为 COMPLETED，并确认锁定库存为已售库存。")
     @PostMapping("/{orderNo}/completion")
-    public ApiResponse<RetailOrderResponse> complete(@PathVariable("orderNo") String orderNo) {
-        return ApiResponse.ok(retailOrderService.complete(orderNo));
+    public ApiResponse<RetailOrderResponse> complete(
+            @PathVariable("orderNo") String orderNo,
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId) {
+        return ApiResponse.ok(retailOrderService.complete(orderNo, userId));
     }
 
     @Operation(summary = "分页查询普通订单", description = "支持按用户 ID、商品 ID、订单状态、创建时间区间查询。时间格式：yyyy-MM-dd'T'HH:mm:ss。")
@@ -107,11 +109,14 @@ public class OrderController {
 
     @Operation(summary = "按普通订单号查询订单详情", description = "查询 retail_order 表。参数是 orderNo，不是 requestId。")
     @GetMapping("/{orderNo}")
-    public ApiResponse<RetailOrderResponse> byOrderNo(@PathVariable("orderNo") String orderNo) {
+    public ApiResponse<RetailOrderResponse> byOrderNo(
+            @PathVariable("orderNo") String orderNo,
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId) {
         RetailOrder retailOrder = retailOrderService.findByOrderNo(orderNo);
         if (retailOrder == null) {
             return ApiResponse.fail(404, "retail order not found");
         }
+        retailOrderService.requireOwner(retailOrder, userId, "view");
         return ApiResponse.ok(RetailOrderResponse.from(retailOrder));
     }
 
@@ -178,8 +183,10 @@ public class OrderController {
 
     @Operation(summary = "按秒杀请求 ID 查询订单详情", description = "查询 trade_order 表。这个接口用于秒杀链路，参数是下单请求的 requestId。")
     @GetMapping("/seckill-requests/{requestId}")
-    public ApiResponse<Map<String, Object>> bySeckillRequestId(@PathVariable("requestId") String requestId) {
-        Map<String, Object> order = tradeOrderService.findByRequestId(requestId);
+    public ApiResponse<Map<String, Object>> bySeckillRequestId(
+            @PathVariable("requestId") String requestId,
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId) {
+        Map<String, Object> order = tradeOrderService.findByRequestId(requestId, userId);
         if (order == null) {
             return ApiResponse.fail(404, "seckill order not found");
         }
@@ -204,7 +211,9 @@ public class OrderController {
 
     @Operation(summary = "完成秒杀订单", description = "将 trade_order 的 PAID 状态流转为 COMPLETED。")
     @PostMapping("/seckill-orders/{orderNo}/completion")
-    public ApiResponse<Map<String, Object>> completeSeckillOrder(@PathVariable("orderNo") String orderNo) {
-        return ApiResponse.ok(tradeOrderService.complete(orderNo));
+    public ApiResponse<Map<String, Object>> completeSeckillOrder(
+            @PathVariable("orderNo") String orderNo,
+            @Parameter(hidden = true) @RequestHeader(UserHeaders.USER_ID) long userId) {
+        return ApiResponse.ok(tradeOrderService.complete(orderNo, userId));
     }
 }

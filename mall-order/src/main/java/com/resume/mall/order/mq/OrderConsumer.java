@@ -41,6 +41,7 @@ public class OrderConsumer {
             jdbcClient.sql("""
                             insert into stock_deduct_log(request_id, user_id, activity_id, status, reason)
                             values (?, ?, ?, 'ORDER_CREATED', null)
+                            on duplicate key update status = 'ORDER_CREATED', reason = null
                             """)
                     .param(message.requestId())
                     .param(message.userId())

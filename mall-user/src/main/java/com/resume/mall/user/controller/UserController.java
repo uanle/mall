@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,8 +48,12 @@ public class UserController {
 
     @Operation(summary = "用户登录", description = "登录成功后返回 Bearer Token。")
     @PostMapping("/auth/login")
-    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ApiResponse.ok(userService.login(request));
+    public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
+        LoginResponse response = userService.login(request);
+        return ResponseEntity.ok()
+                .header(UserHeaders.USER_ID, String.valueOf(response.user().id()))
+                .header(UserHeaders.USER_ROLE, response.user().role())
+                .body(ApiResponse.ok(response));
     }
 
     @Operation(summary = "退出登录", description = "需要通过 Gateway 携带 Authorization: Bearer token。退出后 Redis 中的 token 会话会被删除。")

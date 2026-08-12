@@ -1,29 +1,29 @@
-# Performance Worklog
+# 压测工作记录
 
-## Round 0: Baseline
+## 第 0 轮：基线
 
-- Design:
-- JMeter plan:
-- Test data:
-- TPS:
-- p95:
-- p99:
-- Error rate:
-- Bottleneck:
-- Evidence:
-- Optimization:
-- Retest result:
+- 设计：
+- JMeter 计划：
+- 测试数据：
+- TPS：
+- p95：
+- p99：
+- 错误率：
+- 瓶颈：
+- 证据：
+- 优化：
+- 复测结果：
 
-## Round 1: Redis Lua + MQ
+## 第 1 轮：Redis Lua + MQ
 
-- Design:
-- JMeter plan:
-- Test data:
-- TPS:
-- p95:
-- p99:
-- Error rate:
-- Bottleneck:
-- Evidence:
-- Optimization:
-- Retest result:
+- 设计：
+- JMeter 计划：
+- 测试数据：
+- TPS：
+- p95：
+- p99：
+- 错误率：
+- 瓶颈：
+- 证据：
+- 优化：
+- 复测结果：

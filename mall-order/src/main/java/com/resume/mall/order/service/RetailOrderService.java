@@ -32,6 +32,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 @Service
 public class RetailOrderService {
@@ -61,11 +64,12 @@ public class RetailOrderService {
 
     @Transactional
     public RetailOrderResponse create(long userId, CreateOrderRequest request, String idempotencyKey) {
-        RetailOrder existing = findByIdempotencyKey(idempotencyKey);
+        String scopedIdempotencyKey = scopedIdempotencyKey(userId, idempotencyKey);
+        RetailOrder existing = findByIdempotencyKey(scopedIdempotencyKey);
         if (existing != null) {
             LOGGER.atInfo()
                     .addKeyValue("event", "retail_order_duplicate")
-                    .addKeyValue("idempotencyKey", LogValues.safe(idempotencyKey))
+                    .addKeyValue("idempotencyKey", LogValues.safe(scopedIdempotencyKey))
                     .addKeyValue("orderNo", existing.getOrderNo())
                     .addKeyValue("userId", userId)
                     .log("Existing retail order returned for duplicate request");
@@ -81,12 +85,6 @@ public class RetailOrderService {
             throw new OrderBizException(code, stockCheck.reason(), stockCheck);
         }
 
-        int reserved = inventoryMapper.reserveStock(request.productId(), request.quantity());
-        if (reserved != 1) {
-            StockCheckResponse latestStockCheck = checkStock(product, request.productId(), request.quantity());
-            throw new OrderBizException(409, "stock changed, please retry", latestStockCheck);
-        }
-
         RetailOrder order = new RetailOrder();
         order.setOrderNo("RO" + System.currentTimeMillis() + Math.abs(UUID.randomUUID().hashCode()));
         order.setUserId(userId);
@@ -94,24 +92,33 @@ public class RetailOrderService {
         order.setQuantity(request.quantity());
         order.setAmountCent(product.getPriceCent() * request.quantity());
         order.setStatus(CREATED);
-        order.setIdempotencyKey(idempotencyKey);
+        order.setIdempotencyKey(scopedIdempotencyKey);
 
         try {
             orderMapper.insert(order);
         } catch (DuplicateKeyException ignored) {
-            RetailOrder duplicate = findByIdempotencyKey(idempotencyKey);
+            RetailOrder duplicate = findByIdempotencyKey(scopedIdempotencyKey);
+            if (duplicate == null) {
+                throw ignored;
+            }
             LOGGER.atInfo()
                     .addKeyValue("event", "retail_order_duplicate")
-                    .addKeyValue("idempotencyKey", LogValues.safe(idempotencyKey))
+                    .addKeyValue("idempotencyKey", LogValues.safe(scopedIdempotencyKey))
                     .addKeyValue("orderNo", duplicate == null ? null : duplicate.getOrderNo())
                     .addKeyValue("userId", userId)
                     .log("Concurrent duplicate retail order request ignored");
             return RetailOrderResponse.from(duplicate);
         }
+
+        int reserved = inventoryMapper.reserveStock(request.productId(), request.quantity());
+        if (reserved != 1) {
+            StockCheckResponse latestStockCheck = checkStock(product, request.productId(), request.quantity());
+            throw new OrderBizException(409, "stock changed, please retry", latestStockCheck);
+        }
         RetailOrder created = orderMapper.selectById(order.getId());
         LOGGER.atInfo()
                 .addKeyValue("event", "retail_order_created")
-                .addKeyValue("idempotencyKey", LogValues.safe(idempotencyKey))
+                .addKeyValue("idempotencyKey", LogValues.safe(scopedIdempotencyKey))
                 .addKeyValue("orderNo", created.getOrderNo())
                 .addKeyValue("productId", request.productId())
                 .addKeyValue("quantity", request.quantity())
@@ -126,16 +133,15 @@ public class RetailOrderService {
         if (order == null) {
             throw new IllegalArgumentException("order not found");
         }
+        if (!allowHelpPay) {
+            requireOwner(order, payerUserId, "pay");
+        }
         if (PAID.equals(order.getStatus()) || COMPLETED.equals(order.getStatus())) {
             return RetailOrderResponse.from(order);
         }
         if (!CREATED.equals(order.getStatus())) {
             throw new IllegalStateException("order cannot be paid in status " + order.getStatus());
         }
-        if (!allowHelpPay && !order.getUserId().equals(payerUserId)) {
-            throw new SecurityException("only the order owner can pay this order");
-        }
-
         orderMapper.update(null, new LambdaUpdateWrapper<RetailOrder>()
                 .eq(RetailOrder::getOrderNo, orderNo)
                 .eq(RetailOrder::getStatus, CREATED)
@@ -154,11 +160,12 @@ public class RetailOrderService {
     }
 
     @Transactional
-    public RetailOrderResponse complete(String orderNo) {
+    public RetailOrderResponse complete(String orderNo, long userId) {
         RetailOrder order = findByOrderNo(orderNo);
         if (order == null) {
             throw new IllegalArgumentException("order not found");
         }
+        requireOwner(order, userId, "complete");
         if (COMPLETED.equals(order.getStatus())) {
             return RetailOrderResponse.from(order);
         }
@@ -217,9 +224,29 @@ public class RetailOrderService {
                 .eq(RetailOrder::getOrderNo, orderNo));
     }
 
+    public void requireOwner(RetailOrder order, long userId, String action) {
+        if (order == null || order.getUserId() == null || !order.getUserId().equals(userId)) {
+            throw new SecurityException("only the order owner can " + action + " this order");
+        }
+    }
+
     private RetailOrder findByIdempotencyKey(String idempotencyKey) {
         return orderMapper.selectOne(new LambdaQueryWrapper<RetailOrder>()
                 .eq(RetailOrder::getIdempotencyKey, idempotencyKey));
+    }
+
+    private String scopedIdempotencyKey(long userId, String idempotencyKey) {
+        String raw = idempotencyKey == null ? "" : idempotencyKey.trim();
+        if (raw.isBlank()) {
+            throw new IllegalArgumentException("idempotency key must not be blank");
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashed = digest.digest((userId + ":" + raw).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hashed);
+        } catch (Exception ex) {
+            throw new IllegalStateException("failed to scope idempotency key", ex);
+        }
     }
 
     public StockCheckResponse checkStock(long productId, int quantity) {
